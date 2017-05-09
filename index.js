@@ -55,7 +55,7 @@ var State = {
   dofDepth: 0,
   dofRange: 5,
   dofRadius: 1,
-  dofDepth: 0,
+  dofDepth: 6.76,
   ssao: true,
   ssaoIntensity: 5,
   ssaoRadius: 12,

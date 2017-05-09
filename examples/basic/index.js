@@ -101,7 +101,7 @@ function initCamera () {
   const camera = createCamera({
     fov: Math.PI / 3,
     aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
-    position: [-6, 1, 2],
+    position: [0, 1, 10],
     target: [0, 0, 0],
     near: 0.1,
     far: 100
@@ -212,7 +212,7 @@ function initSky (panorama) {
 
   const skybox = State.skybox = renderer.skybox({
     sunPosition: State.sunPosition,
-    texture: panorama
+    // texture: panorama
   })
 
   // currently this also includes light probe functionality
