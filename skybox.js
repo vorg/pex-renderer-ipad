@@ -74,7 +74,7 @@ Skybox.prototype.set = function (opts) {
   Object.keys(opts).forEach((prop) => this.changed.dispatch(prop))
 }
 
-Skybox.prototype.draw = function (camera) {
+Skybox.prototype.draw = function (camera, opts) {
   var ctx = this._ctx
 
   if (!this.texture && this._dirtySunPosition) {
@@ -91,7 +91,8 @@ Skybox.prototype.draw = function (camera) {
     uniforms: {
       uProjectionMatrix: camera.projectionMatrix,
       uViewMatrix: camera.viewMatrix,
-      uEnvMap: this.texture || this._skyTexture
+      uEnvMap: this.texture || this._skyTexture,
+      uOutputRGBM: opts && opts.rgbm
     }
   })
 }

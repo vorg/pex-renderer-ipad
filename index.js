@@ -37,6 +37,8 @@ const DEPTH_PASS_FRAG = glsl(__dirname + '/glsl/DepthPass.frag')
 // var SHOW_COLORS_FRAG = fs.readFileSync(__dirname + '/glsl/ShowColors.frag', 'utf8')
 const OVERLAY_VERT = glsl(__dirname + '/glsl/Overlay.vert')
 const OVERLAY_FRAG = glsl(__dirname + '/glsl/Overlay.frag')
+const SAO_FRAG = glsl(__dirname + '/glsl/SAO.frag')
+const BILATERAL_BLUR_FRAG = glsl(__dirname + '/glsl/BilateralBlur.frag')
 
 var State = {
   backgroundColor: [0.1, 0.1, 0.1, 1],
@@ -46,11 +48,20 @@ var State = {
   // prevSunPosition: [0, 0, 0],
   exposure: 1,
   frame: 0,
+  // fxaa: true,
+  postprocess: true,
+  dof: true,
+  dofIterations: 1,
+  dofDepth: 0,
+  dofRange: 5,
+  dofRadius: 1,
+  dofDepth: 0,
   ssao: true,
-  fxaa: true,
-  ssaoDownsample: 2,
-  ssaoSharpness: 1,
-  ssaoRadius: 0.2,
+  ssaoIntensity: 5,
+  ssaoRadius: 12,
+  ssaoBias: 0.01,
+  bilateralBlur: true,
+  bilateralBlurRadius: 0.5,
   shadows: true,
   shadowQuality: 2,
   debug: false,
@@ -125,9 +136,11 @@ Renderer.prototype.initPostproces = function () {
 
   this._frameColorTex = ctx.texture2D({ width: this._width, height: this._height })
   this._frameNormalTex = ctx.texture2D({ width: this._width, height: this._height })
+  this._frameAOTex = ctx.texture2D({ width: this._width, height: this._height })
+  this._frameAOBlurTex = ctx.texture2D({ width: this._width, height: this._height })
   this._frameDepthTex = ctx.texture2D({ width: this._width, height: this._height, format: ctx.PixelFormat.Depth })
 
-  this._drawFrameFboCommand = {
+  this._drawFramePrepassFboCmd = {
     name: 'drawFrame',
     pass: ctx.pass({
       // color: [ this._frameColorTex, this._frameNormalTex ],
@@ -135,6 +148,15 @@ Renderer.prototype.initPostproces = function () {
       depth: this._frameDepthTex,
       clearColor: State.backgroundColor,
       clearDepth: 1
+    })
+  }
+  this._drawFrameFboCmd = {
+    name: 'drawFrame',
+    pass: ctx.pass({
+      // color: [ this._frameColorTex, this._frameNormalTex ],
+      color: [ this._frameColorTex ],
+      depth: this._frameDepthTex,
+      clearColor: State.backgroundColor
     })
   }
 
@@ -149,7 +171,10 @@ Renderer.prototype.initPostproces = function () {
     indices: this._fsqMesh.indices,
     uniforms: {
       uScreenSize: [this._width, this._height],
-      uOverlay: this._frameColorTex
+      uOverlay: this._frameColorTex,
+      uHDR: true
+      // uOverlay: this._frameAOTex,
+      // uHDR: false
     }
   }
 
@@ -183,9 +208,135 @@ Renderer.prototype.initPostproces = function () {
   }
   var ssaoNoiseData = new Float32Array(flatten(ssaoNoise))
 
+  var ssaoNoiseHiRes = []
+  for (var j = 0; j < 128 * 128; j++) {
+    var noiseSample = [
+      random.float() * 2 - 1,
+      random.float() * 2 - 1,
+      0,
+      1
+    ]
+    ssaoNoiseHiRes.push(noiseSample)
+  }
+
+  var ssaoNoiseDataHiRes = new Float32Array(flatten(ssaoNoiseHiRes))
   ctx.gl.getExtension('OES_texture_float ')
-  this.ssaoKernelMap = ctx.texture2D({ width: 8, height: 8, data: ssaoKernelData, format: ctx.PixelFormat.RGBA32F, wrap: ctx.Wrap.Repeat })
-  this.ssaoNoiseMap = ctx.texture2D({ width: 8, height: 8, data: ssaoNoiseData, format: ctx.PixelFormat.RGBA32F, wrap: ctx.Wrap.Repeat })
+  this._ssaoKernelMap = ctx.texture2D({ width: 8, height: 8, data: ssaoKernelData, format: ctx.PixelFormat.RGBA32F, wrap: ctx.Wrap.Repeat })
+  this._ssaoNoiseMap = ctx.texture2D({ width: 128, height: 128, data: ssaoNoiseDataHiRes, format: ctx.PixelFormat.RGBA32F, wrap: ctx.Wrap.Repeat, mag: ctx.Filter.Linear, min: ctx.Filter.Linear })
+
+
+  // uniform sampler2D sGBuffer;
+  // uniform sampler2D sNoise;
+
+  // uniform float uFOV;
+  // uniform float uIntensity;
+  // uniform vec2  uNoiseScale;
+  // uniform float uSampleRadiusWS;
+  // uniform float uBias;
+
+  this._saoCmd = {
+    name: 'sao',
+    pass: ctx.pass({
+      color: [ this._frameAOTex ],
+      clearColor: [1, 1, 0, 1],
+      // clearDepth: 1
+    }),
+    pipeline: ctx.pipeline({
+      vert: OVERLAY_VERT,
+      frag: SAO_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      viewportResolution: [this._width, this._height],
+      sGBuffer: this._frameDepthTex,
+      sNoise: this._ssaoNoiseMap
+    }
+  }
+
+  this._bilateralBlurHCmd = {
+    name: 'bilateralBlurH',
+    pass: ctx.pass({
+      color: [ this._frameAOBlurTex ],
+      clearColor: [1, 1, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: OVERLAY_VERT,
+      frag: BILATERAL_BLUR_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      depthMap: this._frameDepthTex,
+      depthMapSize: [this._width, this._height],
+      image: this._frameAOTex,
+      direction: [State.bilateralBlurRadius, 0],
+      uDOFDepth: 0,
+      uDOFRange: 0
+    }
+  }
+
+  this._bilateralBlurVCmd = {
+    name: 'bilateralBlurV',
+    pass: ctx.pass({
+      color: [ this._frameAOTex ],
+      clearColor: [1, 1, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: OVERLAY_VERT,
+      frag: BILATERAL_BLUR_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      depthMap: this._frameDepthTex,
+      depthMapSize: [this._width, this._height],
+      image: this._frameAOBlurTex,
+      direction: [0, State.bilateralBlurRadius],
+      uDOFDepth: 0,
+      uDOFRange: 0
+    }
+  }
+
+  this._dofBlurHCmd = {
+    name: 'bilateralBlurH',
+    pass: ctx.pass({
+      color: [ this._frameAOBlurTex ],
+      clearColor: [1, 1, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: OVERLAY_VERT,
+      frag: BILATERAL_BLUR_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      depthMap: this._frameDepthTex,
+      depthMapSize: [this._width, this._height],
+      image: this._frameColorTex,
+      direction: [State.bilateralBlurRadius, 0]
+    }
+  }
+
+  this._dofBlurVCmd = {
+    name: 'bilateralBlurV',
+    pass: ctx.pass({
+      color: [ this._frameColorTex ],
+      clearColor: [1, 1, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: OVERLAY_VERT,
+      frag: BILATERAL_BLUR_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      depthMap: this._frameDepthTex,
+      depthMapSize: [this._width, this._height],
+      image: this._frameAOBlurTex,
+      direction: [0, State.bilateralBlurRadius]
+    }
+  }
 
   var err = ctx.gl.getError()
   if (err) throw new Error(err)
@@ -267,6 +418,9 @@ Renderer.prototype.getMaterialProgram = function (geometry, material, options) {
   }
   if (geometry._attributes.aRotation) {
     flags.push('#define USE_INSTANCED_ROTATION')
+  }
+  if (State.ssao) {
+    flags.push('#define USE_AO')
   }
 
   if (options.depthPassOnly) {
@@ -396,6 +550,7 @@ Renderer.prototype.drawMeshes = function (shadowMappingLight) {
   const reflectionProbes = this.getComponents('ReflectionProbe')
 
   var sharedUniforms = this._sharedUniforms = this._sharedUniforms || {}
+  sharedUniforms.uOutputRGBM = State.postprocess
 
   // TODO:  find nearest reflection probe
   if (reflectionProbes.length > 0) {
@@ -412,6 +567,10 @@ Renderer.prototype.drawMeshes = function (shadowMappingLight) {
     sharedUniforms.uInverseViewMatrix = Mat4.invert(Mat4.copy(camera.viewMatrix))
   }
 
+  if (State.ssao) {
+    sharedUniforms.uAO = this._frameAOTex
+    sharedUniforms.uScreenSize = [ this._width, this._height ]
+  }
 
   directionalLights.forEach(function (light, i) {
     sharedUniforms['uDirectionalLights[' + i + '].direction'] = light.direction
@@ -568,7 +727,7 @@ Renderer.prototype.draw = function () {
     if (probe.dirty) {
       probe.update((camera) => {
         if (skyboxes.length > 0) {
-          skyboxes[0].draw(camera)
+          skyboxes[0].draw(camera, { rgbm: true })
         }
       })
     }
@@ -584,26 +743,113 @@ Renderer.prototype.draw = function () {
     }
   })
 
-  var currentCamera = cameras[0]
-  
-  ctx.submit(this._drawFrameFboCommand, () => {
-    // depth prepass
+  const currentCamera = cameras[0]
+
+  if (State.postprocess) {
+    ctx.submit(this._drawFramePrepassFboCmd, () => {
+      if (State.depthPrepass) {
+        ctx.gl.colorMask(0, 0, 0, 0)
+        this.drawMeshes()
+        ctx.gl.colorMask(1, 1, 1, 1)
+      }
+    })
+  } else {
     if (State.depthPrepass) {
+      ctx.submit(this._drawFramePrepassFboCmd, () => {
+        if (State.depthPrepass) {
+          ctx.gl.colorMask(0, 0, 0, 0)
+          this.drawMeshes()
+          ctx.gl.colorMask(1, 1, 1, 1)
+        }
+      })
       ctx.gl.colorMask(0, 0, 0, 0)
       this.drawMeshes()
       ctx.gl.colorMask(1, 1, 1, 1)
     }
+  }
+  if (State.ssao) {
+    ctx.submit(this._saoCmd, {
+      uniforms: {
+        uNear: currentCamera.camera.near,
+        uFar: currentCamera.camera.far,
+        uFov: currentCamera.camera.fov,
+        viewMatrix: currentCamera.camera.viewMatrix,
+        uInverseViewMatrix: Mat4.invert(Mat4.copy(currentCamera.camera.viewMatrix)),
+        viewProjectionInverseMatrix: Mat4.invert(Mat4.mult(Mat4.copy(currentCamera.camera.viewMatrix), currentCamera.camera.projectionMatrix)),
+        cameraPositionWorldSpace: currentCamera.camera.position,
+        uIntensity: State.ssaoIntensity,
+        uNoiseScale: [10, 10],
+        uSampleRadiusWS: State.ssaoRadius,
+        uBias: State.ssaoBias
+      }
+    })
+  }
+  if (State.bilateralBlur) {
+    ctx.submit(this._bilateralBlurHCmd, {
+      uniforms: {
+        near: currentCamera.camera.near,
+        far: currentCamera.camera.far,
+        sharpness: 1,
+        imageSize: [this._width, this._height],
+        direction: [State.bilateralBlurRadius, 0]
+      }
+    })
+    ctx.submit(this._bilateralBlurVCmd, {
+      uniforms: {
+        near: currentCamera.camera.near,
+        far: currentCamera.camera.far,
+        sharpness: 1,
+        imageSize: [this._width, this._height],
+        direction: [0, State.bilateralBlurRadius]
+      }
+    })
+  }
+  if (State.postprocess) {
+    ctx.submit(this._drawFrameFboCmd, () => {
+      this.drawMeshes()
+
+      if (skyboxes.length > 0) {
+        skyboxes[0].draw(currentCamera, { rgbm: true })
+      }
+    })
+    if (State.dof) {
+      for (var i = 0; i < State.dofIterations; i++) {
+        ctx.submit(this._dofBlurHCmd, {
+          uniforms: {
+            near: currentCamera.camera.near,
+            far: currentCamera.camera.far,
+            sharpness: 1,
+            imageSize: [this._width, this._height],
+            direction: [State.dofRadius, 0],
+            uDOFDepth: State.dofDepth,
+            uDOFRange: State.dofRange
+          }
+        })
+        ctx.submit(this._dofBlurVCmd, {
+          uniforms: {
+            near: currentCamera.camera.near,
+            far: currentCamera.camera.far,
+            sharpness: 1,
+            imageSize: [this._width, this._height],
+            direction: [0, State.dofRadius],
+            uDOFDepth: State.dofDepth,
+            uDOFRange: State.dofRange
+          }
+        })
+      }
+    }
+    ctx.submit(this._blitCmd, {
+      uniforms: {
+        uExposure: State.exposure
+      }
+    })
+  } else {
     this.drawMeshes()
 
     if (skyboxes.length > 0) {
-      skyboxes[0].draw(currentCamera)
+      skyboxes[0].draw(currentCamera, { rgbm: false })
     }
-  })
-  ctx.submit(this._blitCmd, {
-    uniforms: {
-      uExposure: State.exposure
-    }
-  })
+  }
 
   /*
 

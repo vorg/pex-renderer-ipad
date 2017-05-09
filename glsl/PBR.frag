@@ -47,10 +47,16 @@ uniform mat4 uModelMatrix;
 
 uniform vec3 uCameraPosition;
 
+#ifdef USE_AO
+uniform sampler2D uAO;
+uniform vec2 uScreenSize;
+#endif
 
 //sun
 uniform vec3 uSunPosition;
 uniform vec4 uSunColor;
+
+uniform bool uOutputRGBM;
 
 float pi = 3.14159;
 #define PI 3.14159265359
@@ -513,9 +519,22 @@ void main() {
     }
 #endif
 
-    vec3 color = emissiveColor + indirectDiffuse + indirectSpecular + directDiffuse + directSpecular + indirectArea;
-    // color = reflectionColor;
+    float ao = 1.0;
+#ifdef USE_AO
+    vec2 vUV = vec2(gl_FragCoord.x / uScreenSize.x, gl_FragCoord.y / uScreenSize.y);
+    ao = texture2D(uAO, vUV).r;
+#endif
 
-    gl_FragData[0] = encodeRGBM(color);
+    vec3 color = emissiveColor + ao * indirectDiffuse + indirectSpecular + directDiffuse + directSpecular + indirectArea;
+    // color = reflectionColor;
+    // color = vec3(ao);
+  
+    if (uOutputRGBM) {
+      gl_FragData[0] = encodeRGBM(color);
+    } else {
+      color = color / (1.0 + color);
+      color = toGamma(color);
+      gl_FragData[0] = vec4(color, 1.0);
+    }
     // gl_FragData[1] = vec4(vNormalView * 0.5 + 0.5, 1.0);
 }
