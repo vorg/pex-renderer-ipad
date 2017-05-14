@@ -215,8 +215,11 @@ float saturate(float f) {
 
         normalMap.y *= -1.0;
         /*normalMap.x *= -1.0;*/
+        // vec3 dFdxPos = dFdx( vPositionView );
+        // vec3 dFdyPos = dFdy( vPositionView );
 
         vec3 N = normalize(vNormalView);
+        // N = normalize( cross(dFdxPos,dFdyPos ));
         vec3 V = normalize(vEyeDirView);
 
         vec3 normalView = perturb(normalMap, N, V, vTexCoord0);
@@ -226,6 +229,12 @@ float saturate(float f) {
     }
 #else
     vec3 getNormal() {
+        // vec3 dFdxPos = dFdx( vPositionWorld );
+        // vec3 dFdyPos = dFdy( vPositionWorld );
+
+        // vec3 N = normalize( cross(dFdxPos,dFdyPos ));
+        // return N;
+
         return normalize(vNormalWorld);
     }
 #endif
@@ -452,6 +461,7 @@ void main() {
 #if SHADOW_QUALITY == 4
         float illuminated = PCF5x5(uDirectionalLightShadowMaps[i], light.shadowMapSize, lightUV, lightDistView - light.bias, light.near, light.far);
 #endif
+
         if (illuminated > 0.0) {
             vec3 L = normalize(-light.direction);
             vec3 N = normalWorld;
@@ -526,8 +536,10 @@ void main() {
 #endif
 
     vec3 color = emissiveColor + ao * indirectDiffuse + indirectSpecular + directDiffuse + directSpecular + indirectArea;
+    // color = directDiffuse;
     // color = reflectionColor;
     // color = vec3(ao);
+    // color = normalWorld;
   
     if (uOutputRGBM) {
       gl_FragData[0] = encodeRGBM(color);

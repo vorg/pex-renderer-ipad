@@ -422,6 +422,9 @@ Renderer.prototype.getMaterialProgram = function (geometry, material, options) {
   if (State.ssao) {
     flags.push('#define USE_AO')
   }
+  if (material.displacementMap) {
+    flags.push('#define USE_DISPLACEMENT_MAP')
+  }
 
   if (options.depthPassOnly) {
     const hash = 'DEPTH_PASS_ONLY_' + flags.join('-')
@@ -620,6 +623,10 @@ Renderer.prototype.drawMeshes = function (shadowMappingLight) {
     else cachedUniforms.uRoughness = material.roughness
 
     if (material.normalMap) cachedUniforms.uNormalMap = material.normalMap
+    if (material.displacementMap) {
+      cachedUniforms.uDisplacementMap = material.displacementMap
+      cachedUniforms.uDisplacement = material.displacement
+    }
 
     if (material.uniforms) {
       for (var uniformName in material.uniforms) {
