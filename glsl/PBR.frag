@@ -227,6 +227,28 @@ float saturate(float f) {
         return normalWorld;
 
     }
+#endif
+
+// FIXME: why i can't do #elseif
+
+#ifdef USE_DISPLACEMENT_MAP
+    uniform sampler2D uDisplacementMap;
+    uniform float uDisplacement;
+    uniform float uDisplacementNormalScale;
+    vec3 getNormal() {
+      float scale = uDisplacement * uDisplacementNormalScale;
+      float h = scale * texture2D(uDisplacementMap, vTexCoord0).r;
+      float hx = scale * texture2D(uDisplacementMap, vTexCoord0 + vec2(1.0 / 2048.0, 0.0)).r;
+      float hz = scale * texture2D(uDisplacementMap, vTexCoord0 + vec2(0.0, 1.0 / 2048.0)).r;
+      float meshSize = 20.0;
+      vec3 a = vec3(0.0, h, 0.0);
+      vec3 b = vec3(1.0 / 2048.0 * meshSize, hx, 0.0);
+      vec3 c = vec3(0.0, hz, 1.0 / 2048.0 * meshSize);
+      vec3 N = normalize(cross(normalize(c - a), normalize(b - a)));
+      // FIXME: this is model space normal, need to multiply by modelWorld
+      // N = mat3(uModelMatrix) * N;
+      return N;
+    }
 #else
     vec3 getNormal() {
         // vec3 dFdxPos = dFdx( vPositionWorld );
@@ -536,10 +558,11 @@ void main() {
 #endif
 
     vec3 color = emissiveColor + ao * indirectDiffuse + indirectSpecular + directDiffuse + directSpecular + indirectArea;
-    // color = directDiffuse;
+    // color = indirectDiffuse;
     // color = reflectionColor;
     // color = vec3(ao);
     // color = normalWorld;
+    // color = vec3(0.0, normalWorld.y, 0.0);
   
     if (uOutputRGBM) {
       gl_FragData[0] = encodeRGBM(color);
