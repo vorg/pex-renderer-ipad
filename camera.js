@@ -6,12 +6,21 @@ const utils = require('pex-math/utils')
 const flatten = require('flatten')
 
 const POSTPROCESS_VERT = require('./glsl/Postprocess.vert.js')
-let POSTPROCESS_FRAG = require('./glsl/Postprocess.frag.js')
+const COPY_FRAG = require('./glsl/Copy.frag.js')
+const POSTPROCESS_FRAG = require('./glsl/Postprocess.frag.js')
 
 const SAO_FRAG = require('./glsl/SAO.frag.js')
 const BILATERAL_BLUR_FRAG = require('./glsl/BilateralBlur.frag.js')
 const THRESHOLD_FRAG = require('./glsl/Threshold.frag.js')
 const BLOOM_FRAG = require('./glsl/Bloom.frag.js')
+
+const SMAA_BLEND_VERT = require('./glsl/lib/glsl-smaa/smaa-blend.vert.js')
+const SMAA_BLEND_FRAG = require('./glsl/lib/glsl-smaa/smaa-blend.frag.js')
+const SMAA_WEIGHTS_VERT = require('./glsl/lib/glsl-smaa/smaa-weights.vert.js')
+const SMAA_WEIGHTS_FRAG = require('./glsl/lib/glsl-smaa/smaa-weights.frag.js')
+const EDGES_VERT = require('./glsl/lib/glsl-smaa/edges.vert.js')
+const EDGES_COLOR_FRAG = require('./glsl/lib/glsl-smaa/edges-color.frag.js')
+const SMAA_TEXTURES = require('./glsl/lib/glsl-smaa/textures.js')
 
 var ssaoKernel = []
 for (let i = 0; i < 64; i++) {
@@ -73,6 +82,7 @@ function Camera (opts) {
   this.dofDepth = 6.76
   this.exposure = 1
   this.fxaa = true
+  this.smaa = false
   this.fog = false
   this.bloom = false
   this.bloomRadius = 1
@@ -216,6 +226,66 @@ Camera.prototype.initPostproces = function () {
   })
   this._frameBloomVTex.sizeScale = 0.5
 
+  // SMAA
+  this._frameSMAATex = ctx.texture2D({
+    name: 'frameSMAATex',
+    width: W,
+    height: H,
+    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
+    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear,
+    min: ctx.Filter.Linear,
+    mag: ctx.Filter.Linear,
+  })
+  this._frameSMAAColorEdgesTex = ctx.texture2D({
+    name: 'frameSMAAColorEdgesTex',
+    width: W,
+    height: H,
+    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
+    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear,
+    min: ctx.Filter.Linear,
+    mag: ctx.Filter.Linear,
+  })
+  this._frameSMAAWeightsTex = ctx.texture2D({
+    name: 'frameSMAAWeightsTex',
+    width: W,
+    height: H,
+    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
+    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear,
+    min: ctx.Filter.Linear,
+    mag: ctx.Filter.Linear,
+  })
+
+  // Extra textures
+  this._SMAASearchTex = ctx.texture2D({
+    name: 'SMAASearchTex',
+    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
+    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear
+  })
+  this._SMAAAreaTex = ctx.texture2D({
+    name: 'SMAAAreaTex',
+    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
+    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear,
+    min: ctx.Filter.Linear
+  })
+  const smaaSearchImage = new Image()
+  smaaSearchImage.src =  SMAA_TEXTURES.search
+  smaaSearchImage.onload = () => {
+    this.ctx.update(this._SMAASearchTex, {
+      data: smaaSearchImage,
+      width: smaaSearchImage.width,
+      height: smaaSearchImage.height
+    })
+  }
+  const smaaAreaImage = new Image()
+  smaaAreaImage.src =  SMAA_TEXTURES.area
+  smaaAreaImage.onload = () => {
+    this.ctx.update(this._SMAAAreaTex, {
+      data: smaaAreaImage,
+      width: smaaAreaImage.width,
+      height: smaaAreaImage.height
+    })
+  }
+
   this._textures = [
     this._frameColorTex,
     this._frameEmissiveTex,
@@ -225,7 +295,10 @@ Camera.prototype.initPostproces = function () {
     this._frameAOBlurTex,
     this._frameDofBlurTex,
     this._frameBloomHTex,
-    this._frameBloomVTex
+    this._frameBloomVTex,
+    this._frameSMAATex,
+    this._frameSMAAColorEdgesTex,
+    this._frameSMAAWeightsTex
   ]
 
   ctx.gl.getExtension('OES_texture_float ')
@@ -424,6 +497,93 @@ Camera.prototype.initPostproces = function () {
       direction: [0, 0.5]
     },
     viewport: [0, 0, this._frameBloomVTex.width, this._frameBloomVTex.height]
+  }
+
+  // SMAA
+  this._smaaTexCmd = {
+    name: 'Camera.smaaTex',
+    pass: ctx.pass({
+      name: 'Camera.smaaTex',
+      color: [ this._frameSMAATex ],
+      clearColor: [0, 0, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: POSTPROCESS_VERT,
+      frag: COPY_FRAG,
+      depthTest: false,
+      depthWrite: false
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      colorTex: this._frameColorTex
+    }
+  }
+
+  this._smaaColorEdgesCmd = {
+    name: 'Camera.smaaColorEdges',
+    pass: ctx.pass({
+      name: 'Camera.smaaColorEdges',
+      color: [ this._frameSMAAColorEdgesTex ],
+      clearColor: [0, 0, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: EDGES_VERT,
+      frag: EDGES_COLOR_FRAG,
+      depthTest: false,
+      depthWrite: false
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      colorTex: this._frameSMAATex,
+      resolution: [this._frameSMAAColorEdgesTex.width, this._frameSMAAColorEdgesTex.height]
+    }
+  }
+
+  this._smaaWeightsCmd = {
+    name: 'Camera.smaaWeights',
+    pass: ctx.pass({
+      name: 'Camera.smaaWeights',
+      color: [ this._frameSMAAWeightsTex ],
+      clearColor: [0, 0, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: SMAA_WEIGHTS_VERT,
+      frag: SMAA_WEIGHTS_FRAG,
+      depthTest: false,
+      depthWrite: false
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      edgesTex: this._frameSMAAColorEdgesTex,
+      areaTex: this._SMAAAreaTex,
+      searchTex: this._SMAASearchTex,
+      resolution: [this._frameSMAAWeightsTex.width, this._frameSMAAWeightsTex.height]
+    }
+  }
+
+  this._smaaBlendCmd = {
+    name: 'Camera.smaaBlend',
+    pass: ctx.pass({
+      name: 'Camera.smaaBlend',
+      color: [ this._frameColorTex ],
+      clearColor: [0, 0, 0, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: SMAA_BLEND_VERT,
+      frag: SMAA_BLEND_FRAG,
+      depthTest: false,
+      depthWrite: false
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      colorTex: this._frameSMAATex,
+      blendTex: this._frameSMAAWeightsTex,
+      resolution: [this._frameColorTex.width, this._frameColorTex.height]
+    }
   }
 
   // this._overlayProgram = ctx.program({ vert: POSTPROCESS_VERT, frag: POSTPROCESS_FRAG }) // TODO

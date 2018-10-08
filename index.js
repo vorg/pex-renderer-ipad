@@ -841,6 +841,30 @@ Renderer.prototype.draw = function () {
       }
       if (State.profiler) State.profiler.timeEnd('dof')
     }
+    if (camera.smaa) {
+      if (State.profiler) State.profiler.time('smaa', true)
+      ctx.submit(camera._smaaTexCmd, {
+        uniforms: {
+          resolution: screenSize
+        }
+      })
+      ctx.submit(camera._smaaColorEdgesCmd, {
+        uniforms: {
+          resolution: screenSize
+        }
+      })
+      ctx.submit(camera._smaaWeightsCmd, {
+        uniforms: {
+          resolution: screenSize
+        }
+      })
+      ctx.submit(camera._smaaBlendCmd, {
+        uniforms: {
+          resolution: screenSize
+        }
+      })
+      if (State.profiler) State.profiler.timeEnd('smaa')
+    }
     if (camera.postprocess) {
       ctx.submit(camera._blitCmd, {
         uniforms: {

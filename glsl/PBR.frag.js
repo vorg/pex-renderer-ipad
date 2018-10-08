@@ -1,6 +1,6 @@
 // TODO: this is already browserified, need to split back to chunks
 const tonemapUncharted2 = require('./lib/glsl-tonemap-uncharted2/index.glsl.js')
-module.exports = `
+module.exports = /*glsl*/`
 #ifdef GL_ES
   #extension GL_OES_standard_derivatives : require
 #ifdef USE_DRAW_BUFFERS

@@ -86,6 +86,7 @@ function initCamera () {
       aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
       ssao: true,
       fxaa: false,
+      smaa: false,
       dof: true,
       dofDepth: 18,
       exposure: 2
@@ -338,9 +339,17 @@ function initGUI () {
   gui.addParam('DOF Range', cameraCmp, 'dofRange', { min: 0, max: 20 })
   gui.addParam('DOF Radius', cameraCmp, 'dofRadius', { min: 0, max: 20 })
   gui.addParam('FXAA', cameraCmp, 'fxaa')
+  gui.addParam('SMAA', cameraCmp, 'smaa')
 
   gui.addColumn('Render targets')
   gui.addTexture2D('Depth', cameraCmp._frameDepthTex)
+  // gui.addColumn('SMAA RT')
+  gui.addTexture2D('SMAA Color Edges', cameraCmp._frameSMAAColorEdgesTex)
+  gui.addTexture2D('SMAA Weights', cameraCmp._frameSMAAWeightsTex)
+  gui.addTexture2D('SMAA FrameColor', cameraCmp._frameSMAATex)
+  // gui.addColumn('SMAA Textures')
+  // gui.addTexture2D('SMAA Area', cameraCmp._SMAAAreaTex)
+  // gui.addTexture2D('SMAA Search', cameraCmp._SMAASearchTex)
 }
 
 initCamera()
