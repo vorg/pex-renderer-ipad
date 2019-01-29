@@ -29,12 +29,10 @@
   },
   "devDependencies": {
     "eslint": "^5.12.0",
-    "eslint-config-standard": "^12.0.0",
-    "eslint-plugin-import": "^2.14.0",
+    "eslint-config-prettier": "^4.0.0",
     "eslint-plugin-markdown": "^1.0.0",
-    "eslint-plugin-node": "^8.0.1",
-    "eslint-plugin-promise": "^4.0.1",
-    "eslint-plugin-standard": "^4.0.0"
+    "eslint-plugin-prettier": "^3.0.1",
+    "prettier": "^1.16.1"
   },
   "keywords": [
     "webgl",
@@ -49,17 +47,28 @@
   "bugs": {
     "url": "https://github.com/pex-gl/pex-renderer/issues"
   },
+  "prettier": {
+    "semi": false,
+    "singleQuote": true
+  },
   "eslintConfig": {
-    "extends": "standard",
+    "extends": ["prettier"],
     "plugins": [
+      "prettier",
       "markdown"
     ],
+    "rules": {
+      "prettier/prettier": "error"
+    },
+    "parserOptions": {
+      "ecmaVersion": 2017,
+      "sourceType": "module",
+      "ecmaFeatures": {
+        "experimentalObjectRestSpread": false
+      }
+    },
     "env": {
       "browser": true
-    },
-    "globals": {
-      "renderer": true,
-      "ctx": true
     }
   }
 }
