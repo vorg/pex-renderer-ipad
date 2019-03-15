@@ -97,7 +97,7 @@ cd examples
 npm i
 
 # run the example in your default browser window
-budo example-name.js --open --start
+npx budo example-name.js --open --start
 ```
 
 # API
@@ -244,6 +244,13 @@ entity.transform.dispatch('position')
 
 // stop listening
 entity.transform.changed.remove(onParamChange)
+```
+
+#### Update components
+```javascript
+transformComponent.set({
+  position: [Math.cos(time), 0, 0]
+})
 ```
 
 #### component.dispose()
