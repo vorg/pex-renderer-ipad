@@ -25,6 +25,7 @@ const createReflectionProbe = require('./reflection-probe')
 const createSkybox = require('./skybox')
 const createOverlay = require('./overlay')
 const loadGltf = require('./loaders/glTF')
+const loadDraco = require('./loaders/draco')
 
 const PBR_VERT = require('./shaders/pipeline/material.vert.js')
 const PBR_FRAG = require('./shaders/pipeline/material.frag.js')
@@ -1471,6 +1472,10 @@ Renderer.prototype.loadScene = async function(url, opts = {}) {
       `pex-renderer: No loader found for file extension ${extension}`
     )
   }
+}
+
+Renderer.prototype.loadDraco = async function(data, opts = {}) {
+  return await loadDraco(data, this, opts)
 }
 
 module.exports = function createRenderer(opts) {
