@@ -518,6 +518,12 @@ let postProcessingCmp
 
   gui.addParam('FXAA', postProcessingCmp, 'fxaa')
 
+  gui.addColumn('Tonemapping')
+  gui.addRadioList('Algorithm', postProcessingCmp, 'tonemap', Object.keys(renderer.shaders.postProcessing.tonemap).map((tonemap) => {
+    return { name: tonemap, value: tonemap }
+  }), () => {
+    postProcessingCmp.set({ tonemap: postProcessingCmp.tonemap })
+  })
   gui.addColumn('Render targets')
   if (postProcessingCmp.enabled) {
     gui.addTexture2D('Depth', postProcessingCmp._frameDepthTex)

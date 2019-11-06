@@ -6,6 +6,7 @@ const utils = require('pex-math/utils')
 
 const POSTPROCESS_VERT = require('./shaders/post-processing/post-processing.vert.js')
 const POSTPROCESS_FRAG = require('./shaders/post-processing/post-processing.frag.js')
+const TONEMAP_GLSL = require('./shaders/post-processing/tonemap')
 
 const SAO_FRAG = require('./shaders/post-processing/sao.frag.js')
 const BILATERAL_BLUR_FRAG = require('./shaders/post-processing/bilateral-blur.frag.js')
@@ -45,7 +46,7 @@ for (let i = 0; i < 128 * 128; i++) {
   ssaoNoiseData[i * 4 + 3] = sample[3]
 }
 
-function PostProcessing(opts) {
+function PostProcessing(opts) {  
   const gl = opts.ctx.gl
   this.type = 'PostProcessing'
   this.enabled = true
@@ -87,6 +88,8 @@ function PostProcessing(opts) {
   this.sunColor = [0.98, 0.98, 0.7]
   this.sunDispertion = 0.2
   this.sunIntensity = 0.1
+
+  this.tonemap = 'uncharted2'
 
   this._textures = []
 
@@ -141,6 +144,20 @@ PostProcessing.prototype.set = function(opts) {
           height: expectedHeight
         })
       }
+    })
+  }
+
+  if (opts.tonemap) {
+    var tonemapGlsl = TONEMAP_GLSL[opts.tonemap]
+    if (!tonemapGlsl) {
+      throw new Error(`Unknown tonemapping algoirthm "${opts.tonemap}"`)
+    }
+    var ctx = this.ctx
+    ctx.dispose(this._blitCmd.pipeline)
+    var frag = POSTPROCESS_FRAG.replace(TONEMAP_GLSL.uncharted2, tonemapGlsl)    
+    this._blitCmd.pipeline = ctx.pipeline({
+      vert: POSTPROCESS_VERT,
+      frag: frag
     })
   }
 

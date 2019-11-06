@@ -344,8 +344,6 @@ const postProcessing = renderer.postProcessing({
 })
 ```
 
-#### Antialiasing
-
 | property | info                   | type    | default |
 | -------- | ---------------------- | ------- | ------- |
 | `fxaa`   | FXX antaliasing on/off | Boolean | false   |
@@ -380,6 +378,14 @@ const postProcessing = renderer.postProcessing({
 #### Fog
 
 TODO: _fog, fogColor, fogStart, fogDensity, inscatteringCoeffs, sunPosition, sunColor, sunDispertion, sunIntensity_
+
+#### Tonemapping
+
+Possible values: aces, filmic, lottes, reinhard, reinhard2, uchimura, uncharted2, unreal
+
+| property | info                   | type    | default    |
+| -------- | ---------------------- | ------- | ---------- |
+| `tonemap`| Tonemapping algorithm  | String  | uncharted2 |
 
 ### orbiter = renderer.orbiter(opts)
 

@@ -43,6 +43,7 @@ const OVERLAY_FRAG = require('./shaders/pipeline/overlay.frag.js')
 const ERROR_VERT = require('./shaders/error/error.vert.js')
 const ERROR_FRAG = require('./shaders/error/error.frag.js')
 const SHADERS_CHUNKS = require('./shaders/chunks')
+const POSTPROCESSING_TONEMAP = require('./shaders/post-processing/tonemap')
 
 const LOADERS = new Map().set(['.gltf', '.glb'], loadGltf)
 const LOADERS_ENTRIES = Array.from(LOADERS.entries())
@@ -141,6 +142,9 @@ function Renderer(opts) {
 
   this.shaders = {
     chunks: SHADERS_CHUNKS,
+    postProcessing: {
+      tonemap: POSTPROCESSING_TONEMAP
+    },
     pipeline: {
       depthPrePass: {
         vert: DEPTH_PASS_VERT,

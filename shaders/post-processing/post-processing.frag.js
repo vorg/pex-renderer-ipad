@@ -1,4 +1,5 @@
 const SHADERS = require('../chunks/index.js')
+const TONEMAP_GLSL = require('./tonemap')
 
 module.exports = /* glsl */ `
 precision highp float;
@@ -38,7 +39,7 @@ ${SHADERS.encodeDecode}
 ${SHADERS.depthRead}
 ${SHADERS.fxaa}
 ${SHADERS.fog}
-${SHADERS.tonemapUncharted2}
+${TONEMAP_GLSL.uncharted2}
 
 vec3 getFarViewDir(vec2 tc) {
   float hfar = 2.0 * tan(uFov/2.0) * uFar;
@@ -76,7 +77,7 @@ void main() {
     color.rgb += texture2D(uBloomMap, vTexCoord0).rgb * uBloomIntensity;
   }
   color.rgb *= uExposure;
-  color.rgb = tonemapUncharted2(color.rgb);
+  color.rgb = tonemap(color.rgb);
   gl_FragColor = encode(color, uOutputEncoding);
 }
 `
