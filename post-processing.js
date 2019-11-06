@@ -153,12 +153,14 @@ PostProcessing.prototype.set = function(opts) {
       throw new Error(`Unknown tonemapping algoirthm "${opts.tonemap}"`)
     }
     var ctx = this.ctx
-    ctx.dispose(this._blitCmd.pipeline)
-    var frag = POSTPROCESS_FRAG.replace(TONEMAP_GLSL.uncharted2, tonemapGlsl)    
-    this._blitCmd.pipeline = ctx.pipeline({
-      vert: POSTPROCESS_VERT,
-      frag: frag
-    })
+    if (this._blitCmd) {
+      ctx.dispose(this._blitCmd.pipeline)
+      var frag = POSTPROCESS_FRAG.replace(TONEMAP_GLSL.uncharted2, tonemapGlsl)    
+      this._blitCmd.pipeline = ctx.pipeline({
+        vert: POSTPROCESS_VERT,
+        frag: frag
+      })
+    }
   }
 
   Object.keys(opts).forEach((prop) => this.changed.dispatch(prop))
@@ -448,12 +450,13 @@ PostProcessing.prototype.initPostproces = function() {
     viewport: [0, 0, this._frameBloomVTex.width, this._frameBloomVTex.height]
   }
 
+  var postProcessFrag = POSTPROCESS_FRAG.replace(TONEMAP_GLSL.uncharted2, TONEMAP_GLSL[this.tonemap])
   // this._overlayProgram = ctx.program({ vert: POSTPROCESS_VERT, frag: POSTPROCESS_FRAG }) // TODO
   this._blitCmd = {
     name: 'PostProcessing.blit',
     pipeline: ctx.pipeline({
       vert: POSTPROCESS_VERT,
-      frag: POSTPROCESS_FRAG
+      frag: postProcessFrag
     }),
     attributes: this._fsqMesh.attributes,
     indices: this._fsqMesh.indices,

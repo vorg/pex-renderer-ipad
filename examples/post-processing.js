@@ -46,7 +46,7 @@ ctx.gl.getExtension('OES_texture_float')
 const renderer = createRenderer({
   ctx: ctx,
   profile: true,
-  shadowQuality: 3,
+  shadowQuality: 2,
   rgbm: State.rgbm
 })
 
@@ -108,12 +108,13 @@ const cameraEntity = renderer.add(
       ssao: true,
       fxaa: false,
       dof: true,
-      dofFocusDistance: 18
+      dofFocusDistance: 18,
+      tonemap: 'aces'
     }),
     renderer.camera({
       fov: Math.PI / 4,
       aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
-      exposure: 2,
+      exposure: 1.2,
       fStop: 1.4
     }),
     renderer.orbiter({
