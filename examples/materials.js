@@ -37,7 +37,6 @@ const renderer = createRenderer({
   pauseOnBlur: true,
   rgbm: State.rgbm,
   shadowQuality: 2
-  // targetMobile: true
 })
 
 const gui = createGUI(ctx)
@@ -56,7 +55,7 @@ let materials = [
     baseColor: [1.0, 1.0, 1.0, 1.0],
     metallic: 0,
     roughness: 1,
-    baseColorMap: ASSETS_DIR + '/uv-wide.png'
+    baseColorMap: ASSETS_DIR + '/textures/uv-wide/uv-wide.png'
   },
   { baseColor: [0.8, 0.2, 0.2, 1.0], metallic: 0, roughness: 0 / 6 },
   { baseColor: [0.8, 0.2, 0.2, 1.0], metallic: 0, roughness: 1 / 6 },
@@ -69,7 +68,7 @@ let materials = [
     baseColor: [1.0, 1.0, 0.9, 1.0],
     metallic: 1,
     roughness: 1,
-    roughnessMap: ASSETS_DIR + '/roughness-test.png'
+    roughnessMap: ASSETS_DIR + '/textures/roughness-test/roughness-test.png'
   },
   { baseColor: [1.0, 1.0, 1.0, 1.0], metallic: 1, roughness: 0 / 6 },
   { baseColor: [1.0, 1.0, 1.0, 1.0], metallic: 1, roughness: 1 / 6 },
@@ -78,44 +77,44 @@ let materials = [
   { baseColor: [1.0, 1.0, 1.0, 1.0], metallic: 1, roughness: 4 / 6 },
   { baseColor: [1.0, 1.0, 1.0, 1.0], metallic: 1, roughness: 5 / 6 },
   { baseColor: [1.0, 1.0, 1.0, 1.0], metallic: 1, roughness: 6 / 6 },
+  null,
   {
     unlit: true,
     baseColor: [1, 1, 1, 0.5],
     baseColorMap:
-      ASSETS_DIR + '/plastic-green.material/plastic-green_basecolor.png'
+      ASSETS_DIR + '/materials/plastic-green.material/plastic-green_basecolor.png'
   },
   {
     baseColorMap:
-      ASSETS_DIR + '/plastic-green.material/plastic-green_basecolor.png',
+      ASSETS_DIR + '/materials/plastic-green.material/plastic-green_basecolor.png',
     roughnessMap:
-      ASSETS_DIR + '/plastic-green.material/plastic-green_roughness.png',
+      ASSETS_DIR + '/materials/plastic-green.material/plastic-green_roughness.png',
     metallicMap:
-      ASSETS_DIR + '/plastic-green.material/plastic-green_metallic.png',
-    normalMap: ASSETS_DIR + '/plastic-green.material/plastic-green_n.png'
+      ASSETS_DIR + '/materials/plastic-green.material/plastic-green_metallic.png',
+    normalMap: ASSETS_DIR + '/materials/plastic-green.material/plastic-green_n.png'
   },
   {
     baseColorMap:
-      ASSETS_DIR + '/plastic-red.material/plastic-red_basecolor.png',
+      ASSETS_DIR + '/materials/plastic-red.material/plastic-red_basecolor.png',
     roughnessMap:
-      ASSETS_DIR + '/plastic-red.material/plastic-red_roughness.png',
-    metallicMap: ASSETS_DIR + '/plastic-red.material/plastic-red_metallic.png',
-    normalMap: ASSETS_DIR + '/plastic-red.material/plastic-red_n.png'
+      ASSETS_DIR + '/materials/plastic-red.material/plastic-red_roughness.png',
+    metallicMap: ASSETS_DIR + '/materials/plastic-red.material/plastic-red_metallic.png',
+    normalMap: ASSETS_DIR + '/materials/plastic-red.material/plastic-red_n.png'
   },
   {
     baseColorMap:
-      ASSETS_DIR + '/plastic-glow.material/plastic-glow_basecolor.png',
+      ASSETS_DIR + '/materials/plastic-glow.material/plastic-glow_basecolor.png',
     roughnessMap:
-      ASSETS_DIR + '/plastic-glow.material/plastic-glow_roughness.png',
+      ASSETS_DIR + '/materials/plastic-glow.material/plastic-glow_roughness.png',
     metallicMap:
-      ASSETS_DIR + '/plastic-glow.material/plastic-glow_metallic.png',
-    normalMap: ASSETS_DIR + '/plastic-glow.material/plastic-glow_n.png',
+      ASSETS_DIR + '/materials/plastic-glow.material/plastic-glow_metallic.png',
+    normalMap: ASSETS_DIR + '/materials/plastic-glow.material/plastic-glow_n.png',
     emissiveColor: [1, 1, 1, 1],
     emissiveColorMap:
-      ASSETS_DIR + '/plastic-glow.material/plastic-glow_emissive.png',
+      ASSETS_DIR + '/materials/plastic-glow.material/plastic-glow_emissive.png',
     emissiveIntensity: 4
   },
   { roughness: 2 / 7, metallic: 0, baseColor: [0.1, 0.5, 0.8, 1.0] },
-  { roughness: 3 / 7, metallic: 0, baseColor: [0.1, 0.1, 0.1, 1.0] },
   {
     roughness: 0.5,
     metallic: 0,
@@ -132,8 +131,8 @@ let materials = [
     baseColor: [1, 1, 1, 1],
     alphaTest: 0.5,
     cullFace: false,
-    baseColorMap: ASSETS_DIR + '/alpha-test-mask.png',
-    alphaMap: ASSETS_DIR + '/checkerboard.png'
+    baseColorMap: ASSETS_DIR + '/textures/alpha-test-mask/alpha-test-mask.png',
+    alphaMap: ASSETS_DIR + '/textures/checkerboard/checkerboard.png'
   }
 ]
 
@@ -156,12 +155,26 @@ cells.forEach((cell, cellIndex) => {
     fxaa: true
   })
 
-  if (material.emissiveColor) {
+  if (material && material.emissiveColor) {
     postProcessingCmp.set({
       bloom: true,
-      bloomIntensity: 0.5,
-      bloomThreshold: 3,
-      bloomRadius: 1.25
+      bloomIntensity: 3,
+      bloomRadius: 0.55,
+      bloomThreshold: 1
+    })
+
+    gui.addParam('Bloom', postProcessingCmp, 'bloom')
+    gui.addParam('Bloom intensity', postProcessingCmp, 'bloomIntensity', {
+      min: 0,
+      max: 10
+    })
+    gui.addParam('Bloom threshold', postProcessingCmp, 'bloomThreshold', {
+      min: 0,
+      max: 2
+    })
+    gui.addParam('Bloom radius', postProcessingCmp, 'bloomRadius', {
+      min: 0,
+      max: 2
     })
   }
 
@@ -170,21 +183,21 @@ cells.forEach((cell, cellIndex) => {
       postProcessingCmp,
       cameraCmp,
       renderer.orbiter({
-        position: [0, 0, 1.9]
+        position: [0, 0, 2.5]
       })
     ],
     tags
   )
   renderer.add(cameraEntity)
 
-  gui.addTexture2D('Depth Map', postProcessingCmp._frameDepthTex)
-  gui.addTexture2D('Normal Map', postProcessingCmp._frameNormalTex)
+  // gui.addTexture2D('Depth Map', postProcessingCmp._frameDepthTex)
+  // gui.addTexture2D('Normal Map', postProcessingCmp._frameNormalTex)
 })
-gui.addParam('Exposure', State, 'exposure', { min: 0.01, max: 5 }, () => {
-  renderer.getComponents('Camera').forEach((camera) => {
-    camera.set({ exposure: State.exposure })
-  })
-})
+// gui.addParam('Exposure', State, 'exposure', { min: 0.01, max: 5 }, () => {
+//   renderer.getComponents('Camera').forEach((camera) => {
+//     camera.set({ exposure: State.exposure })
+//   })
+// })
 
 function imageFromFile(file) {
   const tex = ctx.texture2D({
@@ -218,6 +231,7 @@ function imageFromFile(file) {
 
 // Meshes
 materials.forEach((material) => {
+  if (!material) return
   if (material.baseColorMap)
     material.baseColorMap = imageFromFile(
       material.baseColorMap,
@@ -249,18 +263,20 @@ materials.forEach((material) => {
 cells.forEach((cell, cellIndex) => {
   const tags = ['cell' + cellIndex]
   const material = materials[cellIndex]
-  if (!material) return
 
   const materialEntity = renderer.entity(
-    [renderer.geometry(createSphere(0.5)), renderer.material(material)],
+    [renderer.geometry(createSphere(0.5))],
     tags
   )
+  if (material) {
+    materialEntity.addComponent(renderer.material(material))
+  }
   renderer.add(materialEntity)
 })
 
 // Sky
 ;(async () => {
-  const buffer = await io.loadBinary(`${ASSETS_DIR}/garage.hdr`)
+  const buffer = await io.loadBinary(`${ASSETS_DIR}/envmaps/garage/garage.hdr`)
   const hdrImg = parseHdr(buffer)
   const panorama = ctx.texture2D({
     data: hdrImg.data,

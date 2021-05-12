@@ -4,7 +4,7 @@ let examples = require.context('./', false, /\.js$/).keys()
 
 examples = examples.filter(
   (example) =>
-    !['./index.js', './helpers.js', './webpack.config.js'].includes(example)
+    !['./index.js', './webpack.config.js'].includes(example)
 )
 
 examplesNames = examples.map((example) =>
@@ -25,6 +25,7 @@ const ExamplesModules = Object.fromEntries(
 
 const searchParams = new URLSearchParams(window.location.search)
 const currentExample = searchParams.get('name')
+const nosidebar = searchParams.get('nosidebar')
 
 if (currentExample && ExamplesModules[currentExample]) {
   const header = document.querySelector('.MainHeader')
@@ -36,6 +37,9 @@ if (currentExample && ExamplesModules[currentExample]) {
 const list = document.querySelector('.Examples-list')
 if (currentExample) {
   list.classList.add('Examples-list--side')
+}
+if (nosidebar !== null) {
+  list.classList.add('Examples-list--hidden')
 }
 
 const listItems = !currentExample

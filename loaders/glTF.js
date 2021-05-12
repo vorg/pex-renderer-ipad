@@ -74,6 +74,15 @@ const PEX_ATTRIBUTE_NAME_MAP = {
   COLOR_0: 'vertexColors'
 }
 
+function linearToSrgb(color) {
+  return [
+    Math.pow(color[0], 1.0 / 2.2),
+    Math.pow(color[1], 1.0 / 2.2),
+    Math.pow(color[2], 1.0 / 2.2),
+    color.length == 4 ? color[3] : 1
+  ]
+}
+
 // Build
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/accessor.schema.json
 function getAccessor(accessor, bufferViews) {
@@ -238,7 +247,9 @@ function handleMaterial(material, gltf, ctx) {
       metallic: 1
     }
     if (pbrMetallicRoughness.baseColorFactor) {
-      materialProps.baseColor = pbrMetallicRoughness.baseColorFactor
+      materialProps.baseColor = linearToSrgb(
+        pbrMetallicRoughness.baseColorFactor
+      )
     }
     if (pbrMetallicRoughness.baseColorTexture) {
       materialProps.baseColorMap = getPexMaterialTexture(
@@ -248,10 +259,10 @@ function handleMaterial(material, gltf, ctx) {
         ctx.Encoding.SRGB
       )
     }
-    if (pbrMetallicRoughness.metallicFactor) {
+    if (pbrMetallicRoughness.metallicFactor !== undefined) {
       materialProps.metallic = pbrMetallicRoughness.metallicFactor
     }
-    if (pbrMetallicRoughness.roughnessFactor) {
+    if (pbrMetallicRoughness.roughnessFactor !== undefined) {
       materialProps.roughness = pbrMetallicRoughness.roughnessFactor
     }
     if (pbrMetallicRoughness.metallicRoughnessTexture) {
@@ -277,12 +288,14 @@ function handleMaterial(material, gltf, ctx) {
       glossiness: 1
     }
     if (pbrSpecularGlossiness.diffuseFactor) {
-      materialProps.diffuse = pbrSpecularGlossiness.diffuseFactor
+      materialProps.diffuse = linearToSrgb(pbrSpecularGlossiness.diffuseFactor)
     }
     if (pbrSpecularGlossiness.specularFactor) {
-      materialProps.specular = pbrSpecularGlossiness.specularFactor
+      materialProps.specular = linearToSrgb(
+        pbrSpecularGlossiness.specularFactor
+      )
     }
-    if (pbrSpecularGlossiness.glossinessFactor) {
+    if (pbrSpecularGlossiness.glossinessFactor !== undefined) {
       materialProps.glossiness = pbrSpecularGlossiness.glossinessFactor
     }
     if (pbrSpecularGlossiness.diffuseTexture) {
@@ -334,12 +347,7 @@ function handleMaterial(material, gltf, ctx) {
   if (material.emissiveFactor) {
     materialProps = {
       ...materialProps,
-      emissiveColor: [
-        material.emissiveFactor[0],
-        material.emissiveFactor[1],
-        material.emissiveFactor[2],
-        1
-      ]
+      emissiveColor: linearToSrgb(material.emissiveFactor)
     }
   }
 
@@ -430,9 +438,9 @@ function handlePrimitive(primitive, gltf, ctx) {
       indices: {
         buffer: indicesAccessor._bufferView._indexBuffer,
         offset: indicesAccessor.byteOffset,
-        type: indicesAccessor.componentType,
-        count: indicesAccessor.count
-      }
+        type: indicesAccessor.componentType
+      },
+      count: indicesAccessor.count
     }
   } else {
     geometryProps = {
@@ -878,7 +886,7 @@ async function loadGltf(url, renderer, options = {}) {
       if (isBase64(buffer.uri)) {
         buffer._data = decodeBase64(buffer.uri)
       } else {
-        buffer._data = await loadBinary(path.join(basePath, buffer.uri))
+        buffer._data = await loadBinary([basePath, buffer.uri].join('/'))
       }
     }
   }
@@ -907,7 +915,7 @@ async function loadGltf(url, renderer, options = {}) {
   if (json.images) {
     for (let image of json.images) {
       // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#uris
-      if (isBinary) {
+      if (isBinary || image.bufferView) {
         const bufferView = json.bufferViews[image.bufferView]
         bufferView.byteOffset = bufferView.byteOffset || 0
         const buffer = json.buffers[bufferView.buffer]
@@ -926,7 +934,7 @@ async function loadGltf(url, renderer, options = {}) {
       } else {
         // TODO why are we replacing uri encoded spaces?
         image._img = await loadImage({
-          url: path.join(basePath, image.uri).replace(/%/g, '%25'),
+          url: [basePath, image.uri].join('/').replace(/%/g, '%25'),
           crossOrigin: 'anonymous'
         })
       }

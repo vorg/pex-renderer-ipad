@@ -14,7 +14,7 @@ const createBox = require('primitive-box')
 const edges = require('geom-edges')
 const aabb = require('pex-geom/aabb')
 
-const { makeAxes } = require('./helpers')
+const axisHelper = require('../helpers/axis-helper')
 
 const MODELS_PATH =
   'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0'
@@ -164,7 +164,7 @@ const sunEntity = renderer.entity([
   }),
   renderer.directionalLight({
     color: [1, 1, 0.95, 1],
-    intensity: 2,
+    intensity: 5,
     castShadows: State.shadows,
     bias: 0.2
   })
@@ -182,7 +182,7 @@ const reflectionProbeEntity = renderer.entity([renderer.reflectionProbe()])
 renderer.add(reflectionProbeEntity)
 
 const addEnvmap = async () => {
-  const buffer = await loadBinary(`${ASSETS_DIR}/garage.hdr`)
+  const buffer = await loadBinary(`${ASSETS_DIR}/envmaps/garage/garage.hdr`)
   const hdrImg = parseHdr(buffer)
   const panorama = ctx.texture2D({
     data: hdrImg.data,
@@ -201,25 +201,9 @@ const addEnvmap = async () => {
 
 if (State.useEnvMap) addEnvmap()
 
-const axes = makeAxes(1)
+
 const axesEntity = renderer.entity([
-  renderer.transform(),
-  renderer.geometry({
-    positions: axes,
-    primitive: ctx.Primitive.Lines,
-    count: axes.length,
-    vertexColors: [
-      [1, 0, 0, 1],
-      [1, 0.8, 0, 1],
-      [0, 1, 0, 1],
-      [0.8, 1, 0, 1],
-      [0, 0, 1, 1],
-      [0, 0.8, 1, 1]
-    ]
-  }),
-  renderer.material({
-    baseColor: [1, 1, 1, 1]
-  })
+  axisHelper()
 ])
 renderer.add(axesEntity)
 

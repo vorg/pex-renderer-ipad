@@ -11,6 +11,8 @@ const SAO_FRAG = require('./shaders/post-processing/sao.frag.js')
 const BILATERAL_BLUR_FRAG = require('./shaders/post-processing/bilateral-blur.frag.js')
 const THRESHOLD_FRAG = require('./shaders/post-processing/threshold.frag.js')
 const BLOOM_FRAG = require('./shaders/post-processing/bloom.frag.js')
+const DOWN_SAMPLE_FRAG = require('./shaders/post-processing/down-sample.frag.js')
+const DOF_FRAG = require('./shaders/post-processing/dof.frag.js')
 
 const ssaoKernelData = new Float32Array(64 * 4)
 for (let i = 0; i < 64; i++) {
@@ -73,15 +75,14 @@ function PostProcessing(opts) {
   this.ssaoBlurSharpness = 10
 
   this.dof = false
-  this.dofIterations = 1
-  this.dofRange = 5
-  this.dofRadius = 1
-  this.dofDepth = 6.76
+  this.dofDebug = false
+  this.dofFocusDistance = 5
+  this.dofAperture = 1
 
   this.bloom = false
   this.bloomRadius = 1
   this.bloomThreshold = 1
-  this.bloomIntensity = 1
+  this.bloomIntensity = 0.1
 
   this.sunPosition = [1, 1, 1]
   this.sunColor = [0.98, 0.98, 0.7]
@@ -137,8 +138,8 @@ PostProcessing.prototype.set = function(opts) {
         texture.height !== expectedHeight
       ) {
         this.ctx.update(texture, {
-          width: expectedWidth,
-          height: expectedHeight
+          width: Math.max(expectedWidth, 1),
+          height: Math.max(expectedHeight, 1)
         })
       }
     })
@@ -188,7 +189,7 @@ PostProcessing.prototype.initPostproces = function() {
     name: 'frameDepthTex',
     width: W,
     height: H,
-    pixelFormat: ctx.PixelFormat.Depth,
+    pixelFormat: ctx.PixelFormat.Depth24,
     encoding: ctx.Encoding.Linear
   })
   this._frameAOTex = ctx.texture2D({
@@ -212,23 +213,30 @@ PostProcessing.prototype.initPostproces = function() {
     pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
     encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear
   })
-  this._frameBloomHTex = ctx.texture2D({
+  this._frameBloomTex = ctx.texture2D({
     name: 'frameBloomHTex',
-    width: W / 2,
-    height: H / 2,
+    width: W,
+    height: H,
     pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
     encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear
   })
-  this._frameBloomHTex.sizeScale = 0.5
+  this._frameDownSampleTextures = Array.from({ length: 9 }, (v, k) => k).map(
+    (i) => {
+      const sampleSize = Math.pow(2, i + 1)
 
-  this._frameBloomVTex = ctx.texture2D({
-    name: 'frameBloomVTex',
-    width: W / 2,
-    height: H / 2,
-    pixelFormat: this.rgbm ? ctx.PixelFormat.RGBA8 : ctx.PixelFormat.RGBA16F,
-    encoding: this.rgbm ? ctx.Encoding.RGBM : ctx.Encoding.Linear
-  })
-  this._frameBloomVTex.sizeScale = 0.5
+      const tex = ctx.texture2D({
+        width: Math.max(Math.floor(W / sampleSize), 1),
+        height: Math.max(Math.floor(H / sampleSize), 1),
+        pixelFormat: ctx.PixelFormat.RGBA16F,
+        encoding: ctx.Encoding.Linear,
+        min: ctx.Filter.Linear,
+        mag: ctx.Filter.Linear
+      })
+      tex.sizeScale = 1 / sampleSize
+
+      return tex
+    }
+  )
 
   this._textures = [
     this._frameColorTex,
@@ -238,8 +246,8 @@ PostProcessing.prototype.initPostproces = function() {
     this._frameAOTex,
     this._frameAOBlurTex,
     this._frameDofBlurTex,
-    this._frameBloomHTex,
-    this._frameBloomVTex
+    this._frameBloomTex,
+    ...this._frameDownSampleTextures
   ]
 
   // Init fixed sizes textures
@@ -323,9 +331,7 @@ PostProcessing.prototype.initPostproces = function() {
       depthMap: this._frameDepthTex,
       image: this._frameAOTex,
       // direction: [State.bilateralBlurRadius, 0], // TODO:
-      direction: [0.5, 0],
-      uDOFDepth: 0,
-      uDOFRange: 0
+      direction: [0.5, 0]
     }
   }
 
@@ -346,51 +352,26 @@ PostProcessing.prototype.initPostproces = function() {
       depthMap: this._frameDepthTex,
       image: this._frameAOBlurTex,
       // direction: [0, State.bilateralBlurRadius], // TODO:
-      direction: [0, 0.5],
-      uDOFDepth: 0,
-      uDOFRange: 0
-    }
-  }
-
-  this._dofBlurHCmd = {
-    name: 'PostProcessing.bilateralBlurH',
-    pass: ctx.pass({
-      name: 'PostProcessing.dofBilateralBlurH',
-      color: [this._frameDofBlurTex],
-      clearColor: [1, 1, 0, 1]
-    }),
-    pipeline: ctx.pipeline({
-      vert: POSTPROCESS_VERT,
-      frag: BILATERAL_BLUR_FRAG
-    }),
-    attributes: this._fsqMesh.attributes,
-    indices: this._fsqMesh.indices,
-    uniforms: {
-      depthMap: this._frameDepthTex,
-      image: this._frameColorTex,
-      // direction: [State.bilateralBlurRadius, 0] // TODO:
-      direction: [0.5, 0]
-    }
-  }
-
-  this._dofBlurVCmd = {
-    name: 'PostProcessing.bilateralBlurV',
-    pass: ctx.pass({
-      name: 'PostProcessing.dofBilateralBlurV',
-      color: [this._frameColorTex],
-      clearColor: [1, 1, 0, 1]
-    }),
-    pipeline: ctx.pipeline({
-      vert: POSTPROCESS_VERT,
-      frag: BILATERAL_BLUR_FRAG
-    }),
-    attributes: this._fsqMesh.attributes,
-    indices: this._fsqMesh.indices,
-    uniforms: {
-      depthMap: this._frameDepthTex,
-      image: this._frameDofBlurTex,
-      // direction: [0, State.bilateralBlurRadius] // TODO:
       direction: [0, 0.5]
+    }
+  }
+
+  this._dofCmd = {
+    name: 'PostProcessing.dof',
+    pass: ctx.pass({
+      name: 'PostProcessing.dof',
+      color: [this._frameDofBlurTex],
+      clearColor: [1, 1, 1, 1]
+    }),
+    pipeline: ctx.pipeline({
+      vert: POSTPROCESS_VERT,
+      frag: DOF_FRAG
+    }),
+    attributes: this._fsqMesh.attributes,
+    indices: this._fsqMesh.indices,
+    uniforms: {
+      depthMap: this._frameDepthTex,
+      image: this._frameColorTex
     }
   }
 
@@ -398,7 +379,7 @@ PostProcessing.prototype.initPostproces = function() {
     name: 'PostProcessing.threshold',
     pass: ctx.pass({
       name: 'PostProcessing.threshold',
-      color: [this._frameBloomVTex],
+      color: [this._frameBloomTex],
       clearColor: [1, 1, 1, 1]
     }),
     pipeline: ctx.pipeline({
@@ -411,52 +392,54 @@ PostProcessing.prototype.initPostproces = function() {
       image: this._frameColorTex,
       emissiveTex: this._frameEmissiveTex,
       // TODO: this should be called screenSize as it's used to calculate uv
-      imageSize: [this._frameBloomVTex.width, this._frameBloomVTex.height]
-    },
-    viewport: [0, 0, this._frameBloomVTex.width, this._frameBloomVTex.height]
+      imageSize: [this._frameBloomTex.width, this._frameBloomTex.height]
+    }
   }
 
-  this._bloomHCmd = {
-    name: 'PostProcessing.bloomH',
-    pass: ctx.pass({
-      name: 'PostProcessing.bloomH',
-      color: [this._frameBloomHTex],
-      clearColor: [1, 1, 1, 1]
-    }),
-    pipeline: ctx.pipeline({
-      vert: POSTPROCESS_VERT,
-      frag: BLOOM_FRAG
-    }),
-    attributes: this._fsqMesh.attributes,
-    indices: this._fsqMesh.indices,
-    uniforms: {
-      image: this._frameBloomVTex,
-      imageSize: [this._frameBloomVTex.width, this._frameBloomVTex.height],
-      direction: [0.5, 0]
-    },
-    viewport: [0, 0, this._frameBloomHTex.width, this._frameBloomHTex.height]
-  }
+  this._downSampleCmds = this._frameDownSampleTextures.map((texture, i) => {
+    const srcTexture =
+      i === 0 ? this._frameBloomTex : this._frameDownSampleTextures[i - 1]
 
-  this._bloomVCmd = {
-    name: 'PostProcessing.bloomV',
-    pass: ctx.pass({
-      name: 'PostProcessing.bloomV',
-      color: [this._frameBloomVTex],
-      clearColor: [1, 1, 0, 1]
-    }),
-    pipeline: ctx.pipeline({
-      vert: POSTPROCESS_VERT,
-      frag: BLOOM_FRAG
-    }),
-    attributes: this._fsqMesh.attributes,
-    indices: this._fsqMesh.indices,
-    uniforms: {
-      image: this._frameBloomHTex,
-      imageSize: [this._frameBloomHTex.width, this._frameBloomHTex.height],
-      direction: [0, 0.5]
-    },
-    viewport: [0, 0, this._frameBloomVTex.width, this._frameBloomVTex.height]
-  }
+    return {
+      name: `PostProcessing.downSample[${i}]`,
+      pass: ctx.pass({
+        name: `PostProcessing.downSample[${i}]`,
+        color: [texture]
+      }),
+      pipeline: ctx.pipeline({
+        vert: POSTPROCESS_VERT,
+        frag: DOWN_SAMPLE_FRAG
+      }),
+      attributes: this._fsqMesh.attributes,
+      indices: this._fsqMesh.indices,
+      uniforms: {
+        image: srcTexture,
+        imageSize: [srcTexture.width, srcTexture.height],
+        intensity: this.bloomRadius
+      }
+    }
+  })
+
+  this._bloomCmds = this._frameDownSampleTextures.slice(1).map((texture, i) => {
+    return {
+      name: `PostProcessing.bloom[${i}]`,
+      pass: ctx.pass({
+        name: `PostProcessing.bloom[${i}]`,
+        color: [this._frameBloomTex]
+      }),
+      pipeline: ctx.pipeline({
+        vert: POSTPROCESS_VERT,
+        frag: BLOOM_FRAG,
+        blend: true
+      }),
+      attributes: this._fsqMesh.attributes,
+      indices: this._fsqMesh.indices,
+      uniforms: {
+        image: texture,
+        imageSize: [texture.width, texture.height]
+      }
+    }
+  })
 
   // this._overlayProgram = ctx.program({ vert: POSTPROCESS_VERT, frag: POSTPROCESS_FRAG }) // TODO
   this._blitCmd = {
@@ -473,7 +456,7 @@ PostProcessing.prototype.initPostproces = function() {
       uViewMatrix: this.viewMatrix,
       depthMap: this._frameDepthTex,
       depthMapSize: [W, H],
-      uBloomMap: this._frameBloomVTex,
+      uBloomMap: this._frameBloomTex,
       uEmissiveMap: this._frameEmissiveTex
     }
   }

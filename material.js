@@ -12,9 +12,23 @@ const MATERIAL_MAPS = [
   'roughnessMap',
   'metallicRoughnessMap',
   'normalMap',
+  'clearCoatNormalMap',
   'occlusionMap',
   'diffuseMap',
   'specularGlossinessMap'
+]
+
+const PIPELINE_PROPS = [
+  'depthTest',
+  'depthWrite',
+  'depthFunc',
+  'blend',
+  'blendSrcRGBFactor',
+  'blendSrcAlphaFactor',
+  'blendDstRGBFactor',
+  'blendDstAlphaFactor',
+  'cullFace',
+  'cullFaceMode'
 ]
 
 function Material(opts) {
@@ -65,10 +79,12 @@ function Material(opts) {
   this.clearCoat = null
   this.clearCoatRoughness = null
   this.clearCoatNormalMap = null
-  this.clearCoatNormalMapScale = 1
+  this.clearCoatNormalMapScale = 1 //TODO: what's clearCoatNormalMapScale
 
   this.alphaMap = null
   this.alphaTest = undefined
+
+  // pipeline props
   this.depthTest = true
   this.depthWrite = true
   this.depthFunc = ctx.DepthFunc.LessEqual
@@ -84,6 +100,8 @@ function Material(opts) {
 
   this.castShadows = false
   this.receiveShadows = false
+
+  this.needsPipelineUpdate = false
 
   this.set(opts)
 }
@@ -114,6 +132,12 @@ Material.prototype.set = function(opts) {
           tempMat2x3
         )
       }
+    }
+  }
+
+  for (let pipelineProp of PIPELINE_PROPS) {
+    if (opts[pipelineProp] !== undefined) {
+      this.needsPipelineUpdate = true
     }
   }
 

@@ -24,8 +24,15 @@ const createAreaLight = require('./area-light')
 const createReflectionProbe = require('./reflection-probe')
 const createSkybox = require('./skybox')
 const createOverlay = require('./overlay')
+const createBoundingBoxHelper = require('./helpers/bounding-box-helper')
+const createLightHelper = require('./helpers/light-helper')
+const createCameraHelper = require('./helpers/camera-helper')
+const createAxisHelper = require('./helpers/axis-helper')
+const createGridHelper = require('./helpers/grid-helper')
 const loadGltf = require('./loaders/glTF')
 const loadDraco = require('./loaders/draco')
+
+const createGeomBuilder = require('geom-builder')
 
 const PBR_VERT = require('./shaders/pipeline/material.vert.js')
 const PBR_FRAG = require('./shaders/pipeline/material.frag.js')
@@ -34,6 +41,8 @@ const DEPTH_PASS_FRAG = require('./shaders/pipeline/depth-pass.frag.js')
 const DEPTH_PRE_PASS_FRAG = require('./shaders/pipeline/depth-pre-pass.frag.js')
 const OVERLAY_VERT = require('./shaders/pipeline/overlay.vert.js')
 const OVERLAY_FRAG = require('./shaders/pipeline/overlay.frag.js')
+const HELPER_VERT = require('./shaders/pipeline/helper.vert.js')
+const HELPER_FRAG = require('./shaders/pipeline/helper.frag.js')
 const ERROR_VERT = require('./shaders/error/error.vert.js')
 const ERROR_FRAG = require('./shaders/error/error.frag.js')
 const SHADERS_CHUNKS = require('./shaders/chunks')
@@ -87,6 +96,12 @@ function Renderer(opts) {
   this._dummyTexture2D = ctx.texture2D({ width: 4, height: 4 })
   this._dummyTextureCube = ctx.textureCube({ width: 4, height: 4 })
 
+  this._defaultMaterial = createMaterial({
+    ctx: ctx,
+    unlit: true,
+    baseColor: [1, 0, 0, 1]
+  })
+
   this._debug = false
   this._programCacheMap = {
     values: [],
@@ -136,11 +151,57 @@ function Renderer(opts) {
   this.shaders = {
     chunks: SHADERS_CHUNKS,
     pipeline: {
+      depthPrePass: {
+        vert: DEPTH_PASS_VERT,
+        frag: DEPTH_PRE_PASS_FRAG
+      },
+      depthPass: {
+        vert: DEPTH_PASS_VERT,
+        frag: DEPTH_PASS_FRAG
+      },
       material: {
         vert: PBR_VERT,
         frag: PBR_FRAG
       }
     }
+  }
+
+  this.helperPositionVBuffer = ctx.vertexBuffer({ data: [0, 0, 0] })
+  this.helperColorVBuffer = ctx.vertexBuffer({ data: [0, 0, 0, 0] })
+  this.drawHelperLinesCmd = {
+    pipeline: ctx.pipeline({
+      vert: `
+        ${HELPER_VERT}
+        `,
+      frag: `
+        ${HELPER_FRAG}
+        `,
+      depthTest: true,
+      primitive: ctx.Primitive.Lines
+    }),
+    attributes: {
+      aPosition: this.helperPositionVBuffer,
+      aVertexColor: this.helperColorVBuffer
+    },
+    count: 1
+  }
+  this.drawHelperLinesPostProcCmd = {
+    pipeline: ctx.pipeline({
+      vert: `
+        ${HELPER_VERT}
+        `,
+      frag: `       
+        ${ctx.capabilities.maxColorAttachments > 1 ? '#define USE_DRAW_BUFFERS' : '' }
+        ${HELPER_FRAG}
+        `,
+      depthTest: true,
+      primitive: ctx.Primitive.Lines
+    }),
+    attributes: {
+      aPosition: this.helperPositionVBuffer,
+      aVertexColor: this.helperColorVBuffer
+    },
+    count: 1
   }
 }
 
@@ -289,9 +350,6 @@ Renderer.prototype.getMaterialProgramAndFlags = function(
 
   var flags = []
 
-  if (this._state.targetMobile) {
-    flags.push('#define TARGET_MOBILE')
-  }
   if (!geometry._attributes.aNormal) {
     flags.push('#define USE_UNLIT_WORKFLOW')
   } else {
@@ -608,9 +666,10 @@ Renderer.prototype.getGeometryPipeline = function(
     this._pipelineCache = {}
   }
   // TODO: better pipeline caching
-  const hash = material.id + '_' + program.id
+  const hash = material.id + '_' + program.id + '_' + geometry.primitive
   let pipeline = this._pipelineCache[hash]
-  if (!pipeline) {
+  if (!pipeline || material.needsPipelineUpdate) {
+    material.needsPipelineUpdate = false
     pipeline = ctx.pipeline({
       program: program,
       depthTest: material.depthTest,
@@ -874,15 +933,15 @@ Renderer.prototype.drawMeshes = function(
   })
 
   geometries.sort((a, b) => {
-    var matA = a.entity.getComponent('Material')
-    var matB = b.entity.getComponent('Material')
+    var matA = a.entity.getComponent('Material') || this._defaultMaterial
+    var matB = b.entity.getComponent('Material') || this._defaultMaterial
     var transparentA = matA.blend ? 1 : 0
     var transparentB = matB.blend ? 1 : 0
     return transparentA - transparentB
   })
 
   var firstTransparent = geometries.findIndex(
-    (g) => g.entity.getComponent('Material').blend
+    (g) => (g.entity.getComponent('Material') || this._defaultMaterial).blend
   )
 
   for (let i = 0; i < geometries.length; i++) {
@@ -903,7 +962,7 @@ Renderer.prototype.drawMeshes = function(
     if (!geometry._attributes.aPosition) {
       continue
     }
-    const material = geometry.entity.getComponent('Material')
+    const material = geometry.entity.getComponent('Material') || this._defaultMaterial
     if (!material.enabled || (material.blend && shadowMapping)) {
       continue
     }
@@ -995,7 +1054,12 @@ Renderer.prototype.drawMeshes = function(
       cachedUniforms.uClearCoatRoughness = material.clearCoatRoughness || 0.04
     }
     if (material.clearCoatNormalMap) {
-      cachedUniforms.uClearCoatNormalMap = material.clearCoatNormalMap
+      cachedUniforms.uClearCoatNormalMap =
+        material.clearCoatNormalMap.texture || material.clearCoatNormalMap
+      if (material.clearCoatNormalMap.texCoordTransformMatrix) {
+        cachedUniforms.uClearCoatNormalMapTexCoordTransform =
+          material.clearCoatNormalMap.texCoordTransformMatrix
+      }
       cachedUniforms.uClearCoatNormalMapScale = material.clearCoatNormalMapScale
     }
 
@@ -1113,6 +1177,76 @@ Renderer.prototype.drawMeshes = function(
   }
 }
 
+Renderer.prototype.drawHelpers = function(camera, postprocessing, ctx) {
+  function byEnabledAndCameraTags(component) {
+    if (!component.enabled) return false
+    if (!camera || !camera.entity) return true
+    if (!camera.entity.tags.length) return true
+    if (!component.entity.tags.length) return true
+    return component.entity.tags[0] === camera.entity.tags[0]
+  }
+
+  let draw = false
+  let geomBuilder = createGeomBuilder({ colors: 1, positions: 1 })
+
+  // bounding box helper
+  let thisHelpers = this.getComponents('BoundingBoxHelper').filter(
+    byEnabledAndCameraTags
+  )
+  thisHelpers.forEach((thisHelper) => {
+    thisHelper.draw(geomBuilder)
+    draw = true
+  })
+
+  //light helper
+  thisHelpers = this.getComponents('LightHelper').filter(byEnabledAndCameraTags)
+  thisHelpers.forEach((thisHelper) => {
+    thisHelper.draw(geomBuilder)
+    draw = true
+  })
+
+  //camera helper
+  thisHelpers = this.getComponents('CameraHelper').filter(
+    byEnabledAndCameraTags
+  )
+  thisHelpers.forEach((thisHelper) => {
+    thisHelper.draw(geomBuilder, camera)
+    draw = true
+  })
+
+  //grid helper
+  thisHelpers = this.getComponents('GridHelper').filter(byEnabledAndCameraTags)
+  thisHelpers.forEach((thisHelper) => {
+    thisHelper.draw(geomBuilder, camera)
+    draw = true
+  })
+
+  //axis helper
+  thisHelpers = this.getComponents('AxisHelper').filter(byEnabledAndCameraTags)
+  thisHelpers.forEach((thisHelper) => {
+    thisHelper.draw(geomBuilder)
+    draw = true
+  })
+
+  if (draw) {
+    const outputEncoding = State.rgbm
+    ? ctx.Encoding.RGBM
+    : ctx.Encoding.Linear // TODO: State.postprocess
+    ctx.update(this.helperPositionVBuffer, { data: geomBuilder.positions })
+    ctx.update(this.helperColorVBuffer, { data: geomBuilder.colors })
+    const cmd = postprocessing ? this.drawHelperLinesPostProcCmd : this.drawHelperLinesCmd
+    cmd.count = geomBuilder.count
+    ctx.submit(cmd, {
+      uniforms: {
+        uProjectionMatrix: camera.projectionMatrix,
+        uViewMatrix: camera.viewMatrix,
+        uOutputEncoding: outputEncoding
+      },
+      viewport: camera.viewport
+    })
+  }
+}
+
 Renderer.prototype.draw = function() {
   const ctx = this._ctx
 
@@ -1147,7 +1281,7 @@ Renderer.prototype.draw = function() {
     if (probe.dirty) {
       probe.update((camera, encoding) => {
         if (skyboxes.length > 0) {
-          skyboxes[0].draw(camera, { outputEncoding: encoding })
+          skyboxes[0].draw(camera, { outputEncoding: encoding, backgroundMode: false })
         }
       })
     }
@@ -1233,10 +1367,12 @@ Renderer.prototype.draw = function() {
       if (postProcessingCmp && postProcessingCmp.enabled) {
         ctx.submit(postProcessingCmp._drawFrameFboCommand, () => {
           this.drawMeshes(camera, false, null, null, skyboxes[0], false)
+          this.drawHelpers(camera, true, ctx)
         })
       } else {
         ctx.submit({ viewport: camera.viewport }, () => {
           this.drawMeshes(camera, false, null, null, skyboxes[0], true)
+          this.drawHelpers(camera, false, ctx)
         })
       }
       if (State.profiler) State.profiler.timeEnd('drawFrame')
@@ -1250,25 +1386,23 @@ Renderer.prototype.draw = function() {
           uniforms: {
             uExposure: camera.exposure,
             uBloomThreshold: postProcessingCmp.bloomThreshold,
-            imageSize: halfScreenSize
-          },
-          viewport: halfViewport
+            imageSize: screenSize
+          }
         })
 
-        for (let i = 0; i < 5; i++) {
-          ctx.submit(postProcessingCmp._bloomHCmd, {
+        for (let i = 0; i < postProcessingCmp._downSampleCmds.length; i++) {
+          ctx.submit(postProcessingCmp._downSampleCmds[i], {
             uniforms: {
-              direction: [postProcessingCmp.bloomRadius, 0],
-              imageSize: halfScreenSize
-            },
-            viewport: halfViewport
+              intensity: postProcessingCmp.bloomRadius
+            }
           })
-          ctx.submit(postProcessingCmp._bloomVCmd, {
+        }
+
+        for (let i = 0; i < postProcessingCmp._bloomCmds.length; i++) {
+          ctx.submit(postProcessingCmp._bloomCmds[i], {
             uniforms: {
-              direction: [0, postProcessingCmp.bloomRadius],
-              imageSize: halfScreenSize
-            },
-            viewport: halfViewport
+              imageSize: screenSize
+            }
           })
         }
       }
@@ -1278,32 +1412,20 @@ Renderer.prototype.draw = function() {
         postProcessingCmp.dof
       ) {
         if (State.profiler) State.profiler.time('dof', true)
-        for (let i = 0; i < postProcessingCmp.dofIterations; i++) {
-          ctx.submit(postProcessingCmp._dofBlurHCmd, {
-            uniforms: {
-              near: camera.near,
-              far: camera.far,
-              sharpness: 0,
-              imageSize: screenSize,
-              depthMapSize: screenSize,
-              direction: [postProcessingCmp.dofRadius, 0],
-              uDOFDepth: postProcessingCmp.dofDepth,
-              uDOFRange: postProcessingCmp.dofRange
-            }
-          })
-          ctx.submit(postProcessingCmp._dofBlurVCmd, {
-            uniforms: {
-              near: camera.near,
-              far: camera.far,
-              sharpness: 0,
-              imageSize: screenSize,
-              depthMapSize: screenSize,
-              direction: [0, postProcessingCmp.dofRadius],
-              uDOFDepth: postProcessingCmp.dofDepth,
-              uDOFRange: postProcessingCmp.dofRange
-            }
-          })
-        }
+        ctx.submit(postProcessingCmp._dofCmd, {
+          uniforms: {
+            uFar: camera.far,
+            uNear: camera.near,
+            imageSize: screenSize,
+            depthMapSize: screenSize,
+            uPixelSize: [1 / screenSize[0], 1 / screenSize[1]],
+            uFocusDistance: postProcessingCmp.dofFocusDistance,
+            uSensorHeight: camera.actualSensorHeight,
+            uFocalLength: camera.focalLength,
+            uFStop: camera.fStop,
+            uDOFDebug: postProcessingCmp.dofDebug
+          }
+        })
         if (State.profiler) State.profiler.timeEnd('dof')
       }
       if (postProcessingCmp && postProcessingCmp.enabled) {
@@ -1326,6 +1448,9 @@ Renderer.prototype.draw = function() {
             uFogDensity: postProcessingCmp.fogDensity,
             uSunPosition: postProcessingCmp.sunPosition,
             uOutputEncoding: ctx.Encoding.Gamma,
+            uOverlay: postProcessingCmp.dof
+              ? postProcessingCmp._frameDofBlurTex
+              : postProcessingCmp._frameColorTex,
             uScreenSize: screenSize
           },
           viewport: camera.viewport
@@ -1454,6 +1579,26 @@ Renderer.prototype.skybox = function(opts) {
 
 Renderer.prototype.overlay = function(opts) {
   return createOverlay(Object.assign({ ctx: this._ctx }, opts))
+}
+
+Renderer.prototype.boundingBoxHelper = function(opts) {
+  return createBoundingBoxHelper(opts)
+}
+
+Renderer.prototype.lightHelper = function(opts) {
+  return createLightHelper(opts)
+}
+
+Renderer.prototype.cameraHelper = function(opts) {
+  return createCameraHelper(opts)
+}
+
+Renderer.prototype.axisHelper = function(opts) {
+  return createAxisHelper(opts)
+}
+
+Renderer.prototype.gridHelper = function(opts) {
+  return createGridHelper(opts)
 }
 
 Renderer.prototype.loadScene = async function(url, opts = {}) {

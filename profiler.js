@@ -208,6 +208,9 @@ function createProfiler(ctx, renderer) {
       )
       lines.push(`Skyboxes: ${pa3(renderer.getComponents('Skybox').length)}`)
       lines.push(
+        `Ambient Lights: ${pa3(renderer.getComponents('AmbientLight').length)}`
+      )
+      lines.push(
         `Point Lights: ${pa3(renderer.getComponents('PointLight').length)}`
       )
       lines.push(
@@ -454,9 +457,8 @@ function createProfiler(ctx, renderer) {
   }
 
   // TODO: what about webgl2?
-  wrapGLExtCall(
-    gl.getExtension('ANGLE_instanced_arrays'),
-    'drawElementsInstancedANGLE',
+  wrapGLCall(
+    'drawElementsInstanced',
     (args) => {
       const mode = args[0]
       const count = args[1]
@@ -467,9 +469,8 @@ function createProfiler(ctx, renderer) {
       profiler.drawElementsInstancedCount++
     }
   )
-  wrapGLExtCall(
-    gl.getExtension('ANGLE_instanced_arrays'),
-    'drawArraysInstancedANGLE',
+  wrapGLCall(
+    'drawArraysInstanced',
     (args) => {
       const mode = args[0]
       const count = args[2]
