@@ -29,14 +29,21 @@ const State = {
   showBoundingBoxes: false,
   useEnvMap: true,
   shadows: false,
-  formats: ['glTF', 'glTF-Binary', 'glTF-Draco', 'glTF-Embedded'],
-  currentFormat: 0
+  formats: [
+    'glTF',
+    'glTF-Binary',
+    'glTF-Draco',
+    'glTF-Quantized',
+    'glTF-Embedded'
+  ],
+  currentFormat: 3
 }
 
 const FORMAT_EXTENSION = new Map()
   .set('glTF', 'gltf')
   .set('glTF-Binary', 'glb')
   .set('glTF-Draco', 'gltf')
+  .set('glTF-Quantized', 'gltf')
   .set('glTF-Embedded', 'gltf')
 
 // Utils
@@ -201,10 +208,7 @@ const addEnvmap = async () => {
 
 if (State.useEnvMap) addEnvmap()
 
-
-const axesEntity = renderer.entity([
-  axisHelper()
-])
+const axesEntity = renderer.entity([axisHelper()])
 renderer.add(axesEntity)
 
 const lineBuilder = renderer.entity([
@@ -328,18 +332,22 @@ async function loadScene(url, grid) {
     if (!cameraEntity) {
       // Update needed for transform.worldBounds
       renderer.update()
-      const far = 10000
-      const sceneBounds = scene.root.transform.worldBounds
-      // const sceneSize = aabb.size(scene.root.transform.worldBounds)
-      const sceneCenter = aabb.center(scene.root.transform.worldBounds)
 
-      const boundingSphereRadius = Math.max.apply(
-        Math,
-        sceneBounds.map((bound) => vec3.distance(sceneCenter, bound))
+      const far = 10000
+      let sceneBounds = scene.root.transform.worldBounds
+      // let sceneSize = aabb.size(scene.root.transform.worldBounds)
+      let sceneCenter = aabb.center(scene.root.transform.worldBounds)
+
+      const boundingSphereRadius = Math.max(
+        ...sceneBounds.map((bound) => vec3.distance(sceneCenter, bound))
       )
 
       const fov = Math.PI / 4
-      const distance = (boundingSphereRadius * 2) / Math.tan(fov / 2)
+      let distance = (boundingSphereRadius * 2) / Math.tan(fov / 2)
+
+      if (url.includes('Fox')) {
+        distance *= 0.3
+      }
 
       cameraEntity = renderer.entity([
         renderer.camera({
@@ -485,7 +493,7 @@ async function init() {
       // '2CylinderEngine',
       // 'AlphaBlendModeTest',
       // 'AnimatedCube',
-      // 'AnimatedMorphCube',
+      'AnimatedMorphCube',
       // 'AnimatedMorphSphere',
       // 'AnimatedTriangle',
       // 'AntiqueCamera',
@@ -494,6 +502,7 @@ async function init() {
       // 'BoomBox',
       // 'BoomBoxWithAxes',
       // 'Box',
+      // 'Box With Spaces',
       // 'BoxAnimated',
       // 'BoxInterleaved',
       // 'BoxTextured',
@@ -504,35 +513,50 @@ async function init() {
       // 'Cameras',
       // 'CesiumMan',
       // 'CesiumMilkTruck',
+      // 'ClearCoatTest',
       // 'Corset',
       // 'Cube',
-      'DamagedHelmet'
+      // 'DamagedHelmet',
       // 'Duck',
       // 'EnvironmentTest',
       // 'FlightHelmet',
+      // 'Fox'
       // 'GearboxAssy',
       // 'InterpolationTest',
       // 'Lantern',
+      // 'MaterialsVariantsShoe',
       // 'MetalRoughSpheres',
-      // 'Monster',
+      // 'MetalRoughSpheresNoTextures',
       // 'MorphPrimitivesTest',
+      // 'MorphStressTest',
       // 'MultiUVTest',
       // 'NormalTangentMirrorTest',
       // 'NormalTangentTest',
       // 'OrientationTest',
       // 'ReciprocatingSaw',
+      // 'RecursiveSkeletons',
       // 'RiggedFigure',
       // 'RiggedSimple',
       // 'SciFiHelmet',
+      // 'SheenChair',
+      // 'SheenCloth',
       // 'SimpleMeshes',
       // 'SimpleMorph',
+      // 'SimpleSkin',
       // 'SimpleSparseAccessor',
       // 'SpecGlossVsMetalRough',
+      // 'SpecularTest',
       // 'Sponza',
       // 'Suzanne',
       // 'TextureCoordinateTest',
+      // 'TextureEncodingTest',
+      // 'TextureLinearInterpolationTest',
       // 'TextureSettingsTest',
+      // 'TextureTransformMultiTest',
       // 'TextureTransformTest',
+      // 'ToyCar',
+      // 'TransmissionRoughnessTest',
+      // 'TransmissionTest',
       // 'Triangle',
       // 'TriangleWithoutIndices',
       // 'TwoSidedPlane',
