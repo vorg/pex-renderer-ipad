@@ -2,11 +2,15 @@ const path = require('path')
 const { loadJSON, loadImage, loadBinary } = require('pex-io')
 const { quat, mat4, utils } = require('pex-math')
 
+const loadDraco = require('./draco.js')
+
 // Constants
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#specifying-extensions
 const SUPPORTED_EXTENSIONS = [
   'KHR_materials_unlit',
   'KHR_materials_pbrSpecularGlossiness',
+  'KHR_draco_mesh_compression',
+  'KHR_mesh_quantization',
   'KHR_texture_transform'
 ]
 
@@ -81,6 +85,14 @@ function linearToSrgb(color) {
     Math.pow(color[2], 1.0 / 2.2),
     color.length == 4 ? color[3] : 1
   ]
+}
+
+// https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_mesh_quantization#encoding-quantized-data
+const MESH_QUANTIZATION_SCALE = {
+  [Int8Array]: 1 / 127,
+  [Uint8Array]: 1 / 255,
+  [Int16Array]: 1 / 32767,
+  [Uint16Array]: 1 / 65535
 }
 
 // Build
@@ -379,8 +391,72 @@ function handleMaterial(material, gltf, ctx) {
 }
 
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/mesh.primitive.schema.json
-function handlePrimitive(primitive, gltf, ctx) {
+async function handlePrimitive(primitive, gltf, ctx, renderer, options) {
   let geometryProps = {}
+
+  // Load draco
+  // https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_draco_mesh_compression
+  if (primitive.extensions && primitive.extensions.KHR_draco_mesh_compression) {
+    // The loader must process KHR_draco_mesh_compression first. The loader must get the data from KHR_draco_mesh_compression's bufferView property and decompress the data using a Draco decoder to a Draco geometry.
+    const bufferView =
+      gltf.bufferViews[
+        primitive.extensions.KHR_draco_mesh_compression.bufferView
+      ]
+    const gltfAttributeMap =
+      primitive.extensions.KHR_draco_mesh_compression.attributes
+
+    const attributeIDs = {}
+    const attributeTypes = {}
+    const normalizedAttributes = []
+
+    for (const name in gltfAttributeMap) {
+      attributeIDs[PEX_ATTRIBUTE_NAME_MAP[name] || name.toLowerCase()] =
+        gltfAttributeMap[name]
+    }
+
+    for (const name in primitive.attributes) {
+      const attributeName = PEX_ATTRIBUTE_NAME_MAP[name] || name.toLowerCase()
+
+      if (gltfAttributeMap[name] !== undefined) {
+        const accessor = gltf.accessors[primitive.attributes[name]]
+        const componentType =
+          WEBGL_TYPED_ARRAY_BY_COMPONENT_TYPES[accessor.componentType]
+        attributeTypes[attributeName] = componentType.name
+        if (accessor.normalized === true) {
+          normalizedAttributes.push(attributeName)
+        }
+      }
+    }
+
+    // If the loader does support the Draco extension, but will not process KHR_draco_mesh_compression, then the loader must load the glTF asset ignoring KHR_draco_mesh_compression in primitive.
+    try {
+      geometryProps = await loadDraco(bufferView._data, renderer, {
+        transcodeConfig: {
+          attributeIDs,
+          attributeTypes,
+          useUniqueIDs: true
+        },
+        ...options.dracoOptions
+      })
+
+      for (let i = 0; i < normalizedAttributes.length; i++) {
+        const attributeName = normalizedAttributes[i]
+        if (geometryProps[attributeName]) {
+          geometryProps[attributeName].normalized = true
+        }
+      }
+    } catch (error) {
+      console.warn(
+        `glTF Loader: Error decoding Draco geometry '${
+          primitive.name
+        }'. Trying to load uncompressed geometry.`,
+        error
+      )
+    }
+
+    // Then the loader must process attributes and indices properties of the primitive.
+    // If additional attributes are defined in primitive's attributes, but not defined in KHR_draco_mesh_compression's attributes, then the loader must process the additional attributes as usual.
+  }
 
   // Format attributes for pex-context
   const attributes = Object.keys(primitive.attributes).reduce(
@@ -388,6 +464,13 @@ function handlePrimitive(primitive, gltf, ctx) {
       const attributeName = PEX_ATTRIBUTE_NAME_MAP[name]
       if (!attributeName)
         console.warn(`glTF Loader: Unknown attribute '${name}'`)
+
+      // https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_draco_mesh_compression/README.md#conformance
+      // When loading each accessor, you must ignore the bufferView and byteOffset of the accessor and go to the previously decoded Draco geometry in the primitive to get the data of indices and attributes. A loader must use the decompressed data to fill the accessors or render the decompressed Draco geometry directly (e.g. ThreeJS (non-normative)).
+      if (geometryProps[attributeName]) {
+        // TODO: does draco loaded data need to be added as _data to accessor?
+        return attributes
+      }
 
       const accessor = getAccessor(
         gltf.accessors[primitive.attributes[name]],
@@ -406,7 +489,8 @@ function handlePrimitive(primitive, gltf, ctx) {
           buffer: accessor._bufferView._vertexBuffer,
           offset: accessor.byteOffset,
           type: accessor.componentType,
-          stride: accessor._bufferView.byteStride
+          stride: accessor._bufferView.byteStride,
+          normalized: accessor.normalized
         }
       }
 
@@ -418,13 +502,24 @@ function handlePrimitive(primitive, gltf, ctx) {
   const positionAccessor = gltf.accessors[primitive.attributes.POSITION]
   const indicesAccessor =
     gltf.accessors[primitive.indices] &&
+    !geometryProps.indices &&
     getAccessor(gltf.accessors[primitive.indices], gltf.bufferViews)
+
+  const scale = positionAccessor.normalized
+    ? MESH_QUANTIZATION_SCALE[
+        WEBGL_TYPED_ARRAY_BY_COMPONENT_TYPES[positionAccessor.componentType]
+      ]
+    : 1
 
   // Create geometry
   geometryProps = {
     ...geometryProps,
     ...attributes,
-    bounds: [positionAccessor.min, positionAccessor.max]
+    // TODO: are bounds calculated for targets?
+    bounds: [
+      positionAccessor.min.map((v) => v * scale),
+      positionAccessor.max.map((v) => v * scale)
+    ]
   }
 
   if (indicesAccessor) {
@@ -438,11 +533,12 @@ function handlePrimitive(primitive, gltf, ctx) {
       indices: {
         buffer: indicesAccessor._bufferView._indexBuffer,
         offset: indicesAccessor.byteOffset,
-        type: indicesAccessor.componentType
+        type: indicesAccessor.componentType,
+        normalized: indicesAccessor.normalized
       },
       count: indicesAccessor.count
     }
-  } else {
+  } else if (positionAccessor._data) {
     geometryProps = {
       ...geometryProps,
       count: positionAccessor._data.length / 3
@@ -460,68 +556,96 @@ function handlePrimitive(primitive, gltf, ctx) {
   return geometryProps
 }
 
+const normalizeData = (data) =>
+  new Float32Array(data).map(
+    (v) => v * MESH_QUANTIZATION_SCALE[data.constructor]
+  )
+
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/mesh.schema.json
-function handleMesh(mesh, gltf, ctx, renderer) {
-  return mesh.primitives.map((primitive) => {
-    const geometryCmp = renderer.geometry(
-      handlePrimitive(primitive, gltf, ctx, renderer)
-    )
-    const materialCmp =
-      primitive.material !== undefined
-        ? renderer.material(
-            handleMaterial(
-              gltf.materials[primitive.material],
-              gltf,
-              ctx,
-              renderer
+async function handleMesh(mesh, gltf, ctx, renderer, options) {
+  return await Promise.all(
+    mesh.primitives.map(async (primitive) => {
+      const decodedPrimitive = await handlePrimitive(
+        primitive,
+        gltf,
+        ctx,
+        renderer,
+        options
+      )
+      // TODO: remove unnecessary attributes (joints/weights added by draco)
+      const geometryCmp = renderer.geometry(decodedPrimitive)
+      const materialCmp =
+        primitive.material !== undefined
+          ? renderer.material(
+              handleMaterial(
+                gltf.materials[primitive.material],
+                gltf,
+                ctx,
+                renderer
+              )
             )
-          )
-        : renderer.material()
+          : renderer.material()
 
-    const components = [geometryCmp, materialCmp]
+      const components = [geometryCmp, materialCmp]
 
-    // Create morph
-    if (primitive.targets) {
-      let sources = {}
-      const targets = primitive.targets.reduce((targets, target) => {
-        const targetKeys = Object.keys(target)
+      // Create morph
+      if (primitive.targets) {
+        let sources = {}
+        const targets = primitive.targets.reduce((targets, target) => {
+          const targetKeys = Object.keys(target)
 
-        targetKeys.forEach((targetKey) => {
-          const targetName = PEX_ATTRIBUTE_NAME_MAP[targetKey] || targetKey
-          targets[targetName] = targets[targetName] || []
+          targetKeys.forEach((targetKey) => {
+            const targetName = PEX_ATTRIBUTE_NAME_MAP[targetKey] || targetKey
+            targets[targetName] = targets[targetName] || []
 
-          const accessor = getAccessor(
-            gltf.accessors[target[targetKey]],
-            gltf.bufferViews
-          )
-
-          targets[targetName].push(accessor._data)
-
-          if (!sources[targetName]) {
-            const sourceAccessor = getAccessor(
-              gltf.accessors[primitive.attributes[targetKey]],
+            const accessor = getAccessor(
+              gltf.accessors[target[targetKey]],
               gltf.bufferViews
             )
-            sources[targetName] = sourceAccessor._data
-          }
+
+            targets[targetName].push(
+              accessor.normalized
+                ? normalizeData(accessor._data)
+                : accessor._data
+            )
+
+            if (!sources[targetName]) {
+              if (
+                gltf.accessors[primitive.attributes[targetKey]] &&
+                gltf.accessors[primitive.attributes[targetKey]]._bufferView
+              ) {
+                const sourceAccessor = getAccessor(
+                  gltf.accessors[primitive.attributes[targetKey]],
+                  gltf.bufferViews
+                )
+
+                sources[targetName] = sourceAccessor.normalized
+                  ? normalizeData(sourceAccessor._data)
+                  : sourceAccessor._data
+              } else {
+                // Draco
+                sources[targetName] = decodedPrimitive[targetName].data
+              }
+            }
+          })
+          return targets
+        }, {})
+
+        const morphCmp = renderer.morph({
+          sources,
+          targets,
+          weights: mesh.weights
         })
-        return targets
-      }, {})
+        components.push(morphCmp)
+      }
 
-      const morphCmp = renderer.morph({
-        sources,
-        targets,
-        weights: mesh.weights
-      })
-      components.push(morphCmp)
-    }
-
-    return components
-  })
+      return components
+    })
+  )
 }
 
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/node.schema.json
-function handleNode(node, gltf, i, ctx, renderer, options) {
+async function handleNode(node, gltf, i, ctx, renderer, options) {
   const components = []
 
   let transform
@@ -614,7 +738,13 @@ function handleNode(node, gltf, i, ctx, renderer, options) {
   }
 
   if (Number.isInteger(node.mesh)) {
-    const primitives = handleMesh(gltf.meshes[node.mesh], gltf, ctx, renderer)
+    const primitives = await handleMesh(
+      gltf.meshes[node.mesh],
+      gltf,
+      ctx,
+      renderer,
+      options
+    )
 
     if (primitives.length === 1) {
       primitives[0].forEach((component) => {
@@ -837,7 +967,8 @@ const DEFAULT_OPTIONS = {
   enabledCameras: [0],
   enabledScene: undefined,
   includeCameras: false,
-  includeLights: false
+  includeLights: false,
+  dracoOptions: {}
 }
 
 async function loadGltf(url, renderer, options = {}) {
@@ -932,9 +1063,8 @@ async function loadGltf(url, renderer, options = {}) {
           crossOrigin: 'anonymous'
         })
       } else {
-        // TODO why are we replacing uri encoded spaces?
         image._img = await loadImage({
-          url: [basePath, image.uri].join('/').replace(/%/g, '%25'),
+          url: decodeURIComponent([basePath, image.uri].join('/')),
           crossOrigin: 'anonymous'
         })
       }
@@ -943,79 +1073,79 @@ async function loadGltf(url, renderer, options = {}) {
 
   // Load scene
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/scene.schema.json
-  let scenes = (json.scenes || [{}]).map((scene, index) => {
-    // Create scene root entity
-    scene.root = renderer.entity([
-      renderer.transform({
-        enabled: opts.enabledScene || index === (json.scene || 0)
-      })
-    ])
-    scene.root.name = scene.name || `scene_${index}`
-
-    // Add scene entities for each node and its children
-    // TODO: scene.entities is just convenience. We could use a user-friendly entity traverse.
-    scene.entities = json.nodes.reduce((entities, node, i) => {
-      const result = handleNode(node, json, i, ctx, renderer, opts)
-      if (result.length) {
-        result.forEach((primitive) => entities.push(primitive))
-      } else {
-        entities.push(result)
-      }
-      return entities
-    }, [])
-
-    // Build pex-renderer hierarchy
-    json.nodes.forEach((node, index) => {
-      const parentNode = json.nodes[index]
-      const parentTransform = parentNode.entity.transform
-
-      // Default to scene root
-      if (!parentNode.entity.transform.parent) {
-        parentNode.entity.transform.set({ parent: scene.root.transform })
-      }
-
-      if (node.children) {
-        node.children.forEach((childIndex) => {
-          const child = json.nodes[childIndex]
-          const childTransform = child.entity.transform
-
-          childTransform.set({ parent: parentTransform })
+  let scenes = await Promise.all(
+    (json.scenes || [{}]).map(async (scene, index) => {
+      // Create scene root entity
+      scene.root = renderer.entity([
+        renderer.transform({
+          enabled: opts.enabledScene || index === (json.scene || 0)
         })
-      }
-    })
+      ])
+      scene.root.name = scene.name || `scene_${index}`
 
-    json.nodes.forEach((node) => {
-      if (node.skin !== undefined) {
-        const skin = json.skins[node.skin]
-        const joints = skin.joints.map((i) => json.nodes[i].entity)
+      // Add scene entities for each node and its children
+      // TODO: scene.entities is just convenience. We could use a user-friendly entity traverse.
+      scene.entities = await Promise.all(
+        json.nodes.map(
+          async (node, i) =>
+            await handleNode(node, json, i, ctx, renderer, opts)
+        )
+      )
+      scene.entities = scene.entities.flat()
 
-        if (json.meshes[node.mesh].primitives.length === 1) {
-          node.entity.getComponent('Skin').set({
-            joints: joints
-          })
-        } else {
-          node.entity.transform.children.forEach((child) => {
-            // FIXME: currently we share the same Skin component
-            // so this code is redundant after first child
-            child.entity.getComponent('Skin').set({
-              joints: joints
-            })
+      // Build pex-renderer hierarchy
+      json.nodes.forEach((node, index) => {
+        const parentNode = json.nodes[index]
+        const parentTransform = parentNode.entity.transform
+
+        // Default to scene root
+        if (!parentNode.entity.transform.parent) {
+          parentNode.entity.transform.set({ parent: scene.root.transform })
+        }
+
+        if (node.children) {
+          node.children.forEach((childIndex) => {
+            const child = json.nodes[childIndex]
+            const childTransform = child.entity.transform
+
+            childTransform.set({ parent: parentTransform })
           })
         }
-      }
-    })
-
-    if (json.animations) {
-      json.animations.forEach((animation) => {
-        const animationComponent = handleAnimation(animation, json, renderer)
-        scene.root.addComponent(animationComponent)
       })
-    }
 
-    renderer.update()
+      json.nodes.forEach((node) => {
+        if (node.skin !== undefined) {
+          const skin = json.skins[node.skin]
+          const joints = skin.joints.map((i) => json.nodes[i].entity)
 
-    return scene
-  })
+          if (json.meshes[node.mesh].primitives.length === 1) {
+            node.entity.getComponent('Skin').set({
+              joints: joints
+            })
+          } else {
+            node.entity.transform.children.forEach((child) => {
+              // FIXME: currently we share the same Skin component
+              // so this code is redundant after first child
+              child.entity.getComponent('Skin').set({
+                joints: joints
+              })
+            })
+          }
+        }
+      })
+
+      if (json.animations) {
+        json.animations.forEach((animation) => {
+          const animationComponent = handleAnimation(animation, json, renderer)
+          scene.root.addComponent(animationComponent)
+        })
+      }
+
+      renderer.update()
+
+      return scene
+    })
+  )
 
   return scenes
 }

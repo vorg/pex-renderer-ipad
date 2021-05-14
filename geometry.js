@@ -60,7 +60,8 @@ Geometry.prototype.set = function(opts) {
           offset: 0,
           stride: 0,
           divisor: 0,
-          type: undefined
+          type: undefined,
+          normalized: undefined
         }
       }
       const data = val.length !== undefined ? val : val.data
@@ -70,13 +71,13 @@ Geometry.prototype.set = function(opts) {
         if (!attrib.buffer) {
           attrib.buffer = ctx.vertexBuffer({
             data: data,
-            type: val.type || attrib.type
+            type: val.type || attrib.type,
           })
         } else {
           ctx.update(attrib.buffer, {
             data: data,
             type: val.type || attrib.type,
-            offset: attrib.offset || 0
+            offset: attrib.offset || 0,
           })
         }
 
@@ -107,6 +108,9 @@ Geometry.prototype.set = function(opts) {
       if (val.divisor !== undefined) {
         attrib.divisor = val.divisor
       }
+      if (val.normalized !== undefined) {
+        attrib.normalized = val.normalized
+      }
 
       if (!attrib.type) {
         throw new Error(`Unknown ${attribName} attrib type`)
@@ -125,7 +129,8 @@ Geometry.prototype.set = function(opts) {
         indices = this._indices = {
           buffer: null,
           offset: 0,
-          type: undefined
+          type: undefined,
+          normalized: undefined
         }
       }
       const data = val.length !== undefined ? val : val.data
@@ -150,6 +155,9 @@ Geometry.prototype.set = function(opts) {
       }
       if (val.count !== undefined) {
         indices.count = val.count
+      }
+      if (val.normalized !== undefined) {
+        indices.normalized = val.normalized
       }
 
       indices.type = val.type || indices.buffer.type
