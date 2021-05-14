@@ -36,9 +36,11 @@ const groupArray = (array, n) => {
 const reflectionProbeEntity = renderer.entity([renderer.reflectionProbe()])
 renderer.add(reflectionProbeEntity)
 ;(async () => {
-  const geometry = await renderer.loadDraco('assets/bunny.drc', {
-    path: 'assets/draco/'
-  })
+  const geometry = renderer.geometry(
+    await renderer.loadDraco('assets/bunny.drc', {
+      path: 'assets/draco/'
+    })
+  )
 
   geometry.set({
     normals: angleNormals(
