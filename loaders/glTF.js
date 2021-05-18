@@ -784,7 +784,17 @@ function handleAnimation(animation, gltf, renderer) {
     const target = gltf.nodes[channel.target.node].entity
 
     const outputData = []
-    const od = output._data
+    let od = output._data
+
+    if (output.normalized) {
+      const scale =
+        MESH_QUANTIZATION_SCALE[
+          WEBGL_TYPED_ARRAY_BY_COMPONENT_TYPES[output.componentType]
+        ]
+
+      od = od.map((n) => n * scale)
+    }
+
     let offset = GLTF_ACCESSOR_TYPE_COMPONENTS_NUMBER[output.type]
     if (channel.target.path === 'weights') {
       offset = target.getComponent('Morph').weights.length
