@@ -46,7 +46,6 @@ Animation.prototype.set = function(opts) {
 Animation.prototype.update = function() {
   if (!this.enabled) return
 
-
   if (this.playing) {
     const animationLength = this.channels[0].input[
       this.channels[0].input.length - 1
@@ -92,7 +91,7 @@ Animation.prototype.update = function() {
     const outputData = channel.output
     const prevInput = inputData[prevIndex]
     const nextInput = inputData[nextIndex]
-    const scale = nextInput - prevInput
+    const scale = nextInput - prevInput || 1
 
     const t = (this.time - prevInput) / scale
 
