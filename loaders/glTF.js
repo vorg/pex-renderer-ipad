@@ -516,20 +516,18 @@ async function handlePrimitive(primitive, gltf, ctx, renderer, options) {
     !geometryProps.indices &&
     getAccessor(gltf.accessors[primitive.indices], gltf.bufferViews)
 
-  const scale = positionAccessor.normalized
-    ? MESH_QUANTIZATION_SCALE[
-        WEBGL_TYPED_ARRAY_BY_COMPONENT_TYPES[positionAccessor.componentType]
-      ]
-    : 1
-
   // Create geometry
   geometryProps = {
     ...geometryProps,
     ...attributes,
     // TODO: are bounds calculated for targets?
     bounds: [
-      positionAccessor.min.map((v) => v * scale),
-      positionAccessor.max.map((v) => v * scale)
+      positionAccessor.normalized
+        ? normalizeData(positionAccessor.min)
+        : positionAccessor.min,
+      positionAccessor.normalized
+        ? normalizeData(positionAccessor.max)
+        : positionAccessor.max
     ]
   }
 
