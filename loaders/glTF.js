@@ -111,13 +111,26 @@ function getAccessor(accessor, bufferViews) {
     WEBGL_TYPED_ARRAY_BY_COMPONENT_TYPES[accessor.componentType]
   const byteSize = GLTF_ACCESSOR_COMPONENT_TYPE_SIZE[accessor.componentType]
 
-  const data = new TypedArrayConstructor(
-    accessor._bufferView._data.slice(
-      accessor.byteOffset,
-      accessor.byteOffset + accessor.count * numberOfComponents * byteSize
+  // Handle bufferView byteStride different from accessor.componentType defined byte size
+  const itemBytes = byteSize * numberOfComponents
+  const byteStride = accessor._bufferView.byteStride
+  if (byteStride && byteStride !== itemBytes) {
+    const ibSlice = Math.floor(accessor.byteOffset / byteStride)
+    accessor._data = new TypedArrayConstructor(
+      accessor._bufferView._data,
+      ibSlice * byteStride,
+      (accessor.count * byteStride) / byteSize
     )
-  )
-  accessor._data = data
+    // TODO: AnimatedMorphCube normals needs byteStride * 4
+    accessor._byteStride = byteStride
+  } else {
+    // Assign buffer view
+    accessor._data = new TypedArrayConstructor(
+      accessor._bufferView._data,
+      accessor.byteOffset,
+      accessor.count * numberOfComponents
+    )
+  }
 
   // Sparse accessors
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/accessor.sparse.schema.json
@@ -500,7 +513,7 @@ async function handlePrimitive(primitive, gltf, ctx, renderer, options) {
           buffer: accessor._bufferView._vertexBuffer,
           offset: accessor.byteOffset,
           type: accessor.componentType,
-          stride: accessor._bufferView.byteStride,
+          stride: accessor._byteStride || accessor._bufferView.byteStride,
           normalized: accessor.normalized
         }
       }
