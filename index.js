@@ -31,6 +31,8 @@ const createAxisHelper = require('./helpers/axis-helper')
 const createGridHelper = require('./helpers/grid-helper')
 const loadGltf = require('./loaders/glTF')
 const loadDraco = require('./loaders/draco')
+const loadKtx2 = require('./loaders/ktx2')
+const loadBasis = require('./loaders/basis')
 
 const createGeomBuilder = require('geom-builder')
 
@@ -1620,7 +1622,13 @@ Renderer.prototype.loadScene = async function(url, opts = {}) {
 }
 
 Renderer.prototype.loadDraco = async function(data, opts = {}) {
-  return await loadDraco(data, this, opts)
+  return await loadDraco(data, this._ctx.gl, opts)
+}
+Renderer.prototype.loadKtx2 = async function(data, opts = {}) {
+  return await loadKtx2(data, this._ctx.gl, opts)
+}
+Renderer.prototype.loadBasis = async function(data, opts = {}) {
+  return await loadBasis(data, this._ctx.gl, opts)
 }
 
 module.exports = function createRenderer(opts) {

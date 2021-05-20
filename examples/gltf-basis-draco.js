@@ -1,4 +1,4 @@
-const createRenderer = require('../')
+const createRenderer = require('..')
 const createContext = require('pex-context')
 
 const ctx = createContext()
@@ -9,8 +9,7 @@ const cameraEntity = renderer.entity([
     aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight
   }),
   renderer.orbiter({
-    position: [0, 0.5, 0.5],
-    target: [0, 0, 0]
+    position: [3, 3, 3]
   })
 ])
 renderer.add(cameraEntity)
@@ -28,16 +27,11 @@ renderer.add(axesEntity)
 const reflectionProbeEntity = renderer.entity([renderer.reflectionProbe()])
 renderer.add(reflectionProbeEntity)
 ;(async () => {
-  const geometry = renderer.geometry(
-    await renderer.loadDraco('assets/models/bunny.drc')
+  const scene = await renderer.loadScene(
+    'assets/models/Duck.basis.draco.glb'
+    // 'assets/models/CesiumMan/CesiumMan.basis.draco.glb'
   )
-
-  renderer.add(
-    renderer.entity([
-      geometry,
-      renderer.material({ baseColor: [0.9, 0.1, 0.1, 1] })
-    ])
-  )
+  renderer.add(scene.root)
 })()
 
 ctx.frame(() => {

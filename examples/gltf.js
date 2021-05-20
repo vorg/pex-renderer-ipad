@@ -16,6 +16,7 @@ const aabb = require('pex-geom/aabb')
 
 const axisHelper = require('../helpers/axis-helper')
 
+// const MODELS_PATH = 'glTF-Sample-Models'
 const MODELS_PATH =
   'https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/master/2.0'
 
@@ -36,7 +37,7 @@ const State = {
     'glTF-Quantized',
     'glTF-Embedded'
   ],
-  currentFormat: 3
+  currentFormat: 1
 }
 
 const FORMAT_EXTENSION = new Map()
@@ -493,7 +494,7 @@ async function init() {
       // '2CylinderEngine',
       // 'AlphaBlendModeTest',
       // 'AnimatedCube',
-      'AnimatedMorphCube',
+      // 'AnimatedMorphCube',
       // 'AnimatedMorphSphere',
       // 'AnimatedTriangle',
       // 'AntiqueCamera',
@@ -516,7 +517,7 @@ async function init() {
       // 'ClearCoatTest',
       // 'Corset',
       // 'Cube',
-      // 'DamagedHelmet',
+      'DamagedHelmet'
       // 'Duck',
       // 'EnvironmentTest',
       // 'FlightHelmet',
