@@ -134,7 +134,7 @@ async function loadBasis(
   data,
   gl,
   {
-    transcoderPath = 'assets/',
+    transcoderPath = 'assets/transcoder/',
     transcodeConfig = {},
     workerLimit,
     workerConfig = {

@@ -75,7 +75,7 @@ async function loadDraco(
   data,
   gl,
   {
-    transcoderPath = 'assets/draco/',
+    transcoderPath = 'assets/transcoder/',
     transcodeConfig = {
       attributeIDs: {
         positions: 'POSITION',
