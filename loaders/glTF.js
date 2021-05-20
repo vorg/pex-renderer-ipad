@@ -3,6 +3,7 @@ const { loadJSON, loadImage, loadBinary } = require('pex-io')
 const { quat, mat4, utils } = require('pex-math')
 
 const loadDraco = require('./draco.js')
+const loadKtx2 = require('./ktx2.js')
 
 // Constants
 // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#specifying-extensions
@@ -10,6 +11,7 @@ const SUPPORTED_EXTENSIONS = [
   'KHR_materials_unlit',
   'KHR_materials_pbrSpecularGlossiness',
   'KHR_draco_mesh_compression',
+  'KHR_texture_basisu',
   'KHR_mesh_quantization',
   'KHR_texture_transform'
 ]
@@ -169,7 +171,12 @@ function getPexMaterialTexture(materialTexture, gltf, ctx, encoding) {
   const texture = gltf.textures[materialTexture.index]
 
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/image.schema.json
-  const image = gltf.images[texture.source]
+  const image =
+    texture.extensions &&
+    texture.extensions.KHR_texture_basisu &&
+    Number.isInteger(texture.extensions.KHR_texture_basisu.source)
+      ? gltf.images[texture.extensions.KHR_texture_basisu.source]
+      : gltf.images[texture.source]
 
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/sampler.schema.json
   const sampler =
@@ -192,8 +199,8 @@ function getPexMaterialTexture(materialTexture, gltf, ctx, encoding) {
     if (!utils.isPowerOfTwo(img.width) || !utils.isPowerOfTwo(img.height)) {
       // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#samplers
       if (
-        sampler.wrapS !== ctx.Wrap.Clamp ||
-        sampler.wrapT !== ctx.Wrap.Clamp ||
+        sampler.wrapS !== ctx.Wrap.ClampToEdge ||
+        sampler.wrapT !== ctx.Wrap.ClampToEdge ||
         hasMipMap
       ) {
         const canvas2d = document.createElement('canvas')
@@ -204,18 +211,22 @@ function getPexMaterialTexture(materialTexture, gltf, ctx, encoding) {
         img = canvas2d
       }
     }
+    const pexTextureOptions = img.compressed
+      ? img
+      : { data: img, width: img.width, height: img.height }
+    if (!img.compressed && hasMipMap) {
+      pexTextureOptions.mipmap = true
+      pexTextureOptions.aniso = 16
+    }
     texture._tex = ctx.texture2D({
-      data: img,
-      width: img.width,
-      height: img.height,
       encoding: encoding || ctx.Encoding.Linear,
       pixelFormat: ctx.PixelFormat.RGBA8,
       wrapS: sampler.wrapS,
       wrapT: sampler.wrapT,
       min: sampler.minFilter,
-      mag: sampler.magFilter
+      mag: sampler.magFilter,
+      ...pexTextureOptions
     })
-    if (hasMipMap) ctx.update(texture._tex, { mipmap: true, aniso: 16 })
   }
 
   // https://github.com/KhronosGroup/glTF/blob/master/extensions/2.0/Khronos/KHR_texture_transform/schema/KHR_texture_transform.textureInfo.schema.json
@@ -969,7 +980,8 @@ const DEFAULT_OPTIONS = {
   enabledScene: undefined,
   includeCameras: false,
   includeLights: false,
-  dracoOptions: {}
+  dracoOptions: {},
+  basisOptions: {}
 }
 
 async function loadGltf(url, renderer, options = {}) {
@@ -1011,17 +1023,19 @@ async function loadGltf(url, renderer, options = {}) {
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#binary-data-storage
 
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/buffer.schema.json
-  for (let buffer of json.buffers) {
-    if (isBinary) {
-      buffer._data = bin
-    } else {
-      if (isBase64(buffer.uri)) {
-        buffer._data = decodeBase64(buffer.uri)
+  await Promise.all(
+    json.buffers.map(async (buffer) => {
+      if (isBinary) {
+        buffer._data = bin
       } else {
-        buffer._data = await loadBinary([basePath, buffer.uri].join('/'))
+        if (isBase64(buffer.uri)) {
+          buffer._data = decodeBase64(buffer.uri)
+        } else {
+          buffer._data = await loadBinary([basePath, buffer.uri].join('/'))
+        }
       }
-    }
-  }
+    })
+  )
 
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/bufferView.schema.json
   for (let bufferView of json.bufferViews) {
@@ -1045,31 +1059,47 @@ async function loadGltf(url, renderer, options = {}) {
   // Load images
   // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/schema/image.schema.json
   if (json.images) {
-    for (let image of json.images) {
-      // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#uris
-      if (isBinary || image.bufferView) {
-        const bufferView = json.bufferViews[image.bufferView]
-        bufferView.byteOffset = bufferView.byteOffset || 0
-        const buffer = json.buffers[bufferView.buffer]
-        const data = buffer._data.slice(
-          bufferView.byteOffset,
-          bufferView.byteOffset + bufferView.byteLength
-        )
-        const blob = new Blob([data], { type: image.mimeType })
-        const uri = URL.createObjectURL(blob)
-        image._img = await loadImage({ url: uri, crossOrigin: 'anonymous' })
-      } else if (isBase64(image.uri)) {
-        image._img = await loadImage({
-          url: image.uri,
-          crossOrigin: 'anonymous'
-        })
-      } else {
-        image._img = await loadImage({
-          url: decodeURIComponent([basePath, image.uri].join('/')),
-          crossOrigin: 'anonymous'
-        })
-      }
-    }
+    await Promise.all(
+      json.images.map(async (image) => {
+        // https://github.com/KhronosGroup/glTF/blob/master/specification/2.0/README.md#uris
+        if (isBinary || image.bufferView) {
+          const bufferView = json.bufferViews[image.bufferView]
+          bufferView.byteOffset = bufferView.byteOffset || 0
+          const buffer = json.buffers[bufferView.buffer]
+          const data = buffer._data.slice(
+            bufferView.byteOffset,
+            bufferView.byteOffset + bufferView.byteLength
+          )
+          if (image.mimeType === 'image/ktx2') {
+            image._img = await loadKtx2(data, ctx.gl, {
+              basisOptions: options.basisOptions
+            })
+          } else {
+            const blob = new Blob([data], { type: image.mimeType })
+            const uri = URL.createObjectURL(blob)
+            image._img = await loadImage({
+              url: uri,
+              crossOrigin: 'anonymous'
+            })
+          }
+        } else if (isBase64(image.uri)) {
+          image._img = await loadImage({
+            url: image.uri,
+            crossOrigin: 'anonymous'
+          })
+        } else {
+          // TODO why are we replacing uri encoded spaces?
+          const url = decodeURIComponent([basePath, image.uri].join('/'))
+          if (image.uri.endsWith('.ktx2')) {
+            image._img = await loadKtx2(url, ctx.gl, {
+              basisOptions: options.basisOptions
+            })
+          } else {
+            image._img = await loadImage({ url, crossOrigin: 'anonymous' })
+          }
+        }
+      })
+    )
   }
 
   // Load scene
