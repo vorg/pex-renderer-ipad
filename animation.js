@@ -13,6 +13,7 @@ let currentOutputQuat = quat.create()
 // - currently all animations track time by themselves
 function Animation(opts) {
   this.type = 'Animation'
+  this.name = null
   this.entity = null
   this.enabled = true
   this.playing = false
