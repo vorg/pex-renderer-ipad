@@ -71,7 +71,8 @@ const getTranscoder = async (transcoderPath) =>
 
 // Texture creation
 const loadCompressedTexture = async (buffers, taskConfig = {}) => {
-  const taskKey = JSON.stringify(taskConfig)
+  const { globalData, levels, ...taskConfigForCache } = taskConfig
+  const taskKey = JSON.stringify(taskConfigForCache)
 
   const cachedTask = workerPool.hasTask(taskKey, buffers[0])
   if (cachedTask) return cachedTask
