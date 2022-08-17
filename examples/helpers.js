@@ -1,69 +1,77 @@
-const path = require('path')
-const createRenderer = require('../')
-const createContext = require('pex-context')
-const io = require('pex-io')
-const { quat, vec3 } = require('pex-math')
-const GUI = require('pex-gui')
-const isBrowser = require('is-browser')
-const { loadText } = require('pex-io')
-const createCube = require('primitive-cube')
-const dragon = require('./assets/models/stanford-dragon/stanford-dragon')
-const normals = require('angle-normals')
-const centerAndNormalize = require('geom-center-and-normalize')
+import {
+  systems,
+  components,
+  world as createWorld,
+  entity as createEntity,
+  loaders,
+} from "../index.js";
+import createContext from "pex-context";
+import { quat, vec3 } from "pex-math";
+import createGUI from "pex-gui";
+
+import { cube } from "primitive-geometry";
+import normals from "angle-normals";
+// import centerAndNormalize from "geom-center-and-normalize";
+
+import { centerAndNormalize, getURL } from "./utils.js";
+
+import * as d from "./assets/models/stanford-dragon/stanford-dragon.js";
+import { aabb } from "pex-geom";
+
+const dragon = { ...d };
 
 const State = {
-  rotation: 1.5 * Math.PI
-}
-const ctx = createContext()
-const renderer = createRenderer(ctx)
-const gui = new GUI(ctx)
+  rotation: 1.5 * Math.PI,
+};
+const ctx = createContext({
+  type: "webgl",
+});
+const world = createWorld();
+window.world = world;
+const gui = createGUI(ctx);
 
-const ASSETS_DIR = isBrowser ? 'assets' : path.join(__dirname, 'assets')
-
-const orbitCameraEntity = renderer.entity([
-  renderer.camera({
+const orbitCameraEntity = createEntity({
+  camera: components.camera({
     fov: Math.PI / 3,
     aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
     near: 0.1,
     far: 100,
     exposure: 0.6,
-    viewport: [0, 0, Math.floor(0.75 * window.innerWidth), window.innerHeight]
+    // viewport: [0, 0, Math.floor(0.75 * window.innerWidth), window.innerHeight],
   }),
-  renderer.postProcessing({
-  }),
-  renderer.transform({ position: [0, 2, 3] }),
-  renderer.orbiter({ position: [2, 2, -2] }),
-])
-renderer.add(orbitCameraEntity)
+  // components.postProcessing({}),
+  transform: components.transform({ position: [0, 0, 0] }),
+  orbiter: components.orbiter({ position: [2, 2, 2] }),
+});
+world.add(orbitCameraEntity);
 
-const persCameraCmp = renderer.camera({
+/*
+const persCameraCmp = components.camera({
   fov: Math.PI / 4,
   aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
   near: 1,
-  far: 8,
-  postprocess: false,
+  far: 18, //TODO:
+  // postprocess: false,
   viewport: [
     Math.floor(0.75 * window.innerWidth),
     window.innerHeight - Math.floor((1 / 2) * window.innerHeight),
     Math.floor(0.25 * window.innerWidth),
-    Math.floor((1 / 2) * window.innerHeight)
-  ]
-})
-const persCameraEntity = renderer.entity([
-  persCameraCmp,
-  renderer.transform({
+    Math.floor((1 / 2) * window.innerHeight),
+  ],
+});
+const persCameraEntity = createEntity({
+  camera: persCameraCmp,
+  transform: components.transform({
     position: [0, 2, 3],
-    rotation: quat.fromEuler(quat.create(), [-Math.PI / 5, 0, 0])
+    rotation: quat.fromEuler(quat.create(), [-Math.PI / 5, 0, 0]),
   }),
-  renderer.cameraHelper({ color: [1, 0.7, 0, 1] })
-])
-renderer.add(persCameraEntity)
+  cameraHelper: true,
+});
+world.add(persCameraEntity);
 
-
-
-const orthoCameraCmp = renderer.camera({
+const orthoCameraCmp = components.camera({
   fov: Math.PI / 3,
-  projection: 'orthographic',
+  projection: "orthographic",
   aspect: ctx.gl.drawingBufferWidth / ctx.gl.drawingBufferHeight,
   near: 0.1,
   far: 10,
@@ -73,385 +81,392 @@ const orthoCameraCmp = renderer.camera({
     Math.floor(0.75 * window.innerWidth),
     0,
     Math.floor(0.25 * window.innerWidth),
-    Math.floor((1 / 2) * window.innerHeight)
-  ]
-})
-const orthoCameraEntity = renderer.entity([
-  orthoCameraCmp,
-  renderer.transform({
+    Math.floor((1 / 2) * window.innerHeight),
+  ],
+});
+const orthoCameraEntity = createEntity({
+  camera: orthoCameraCmp,
+  transform: components.transform({
     position: [0, 2, 3],
-    rotation: quat.fromEuler(quat.create(), [-Math.PI / 5, 0, 0])
+    rotation: quat.fromEuler(quat.create(), [-Math.PI / 5, 0, 0]),
   }),
-  renderer.cameraHelper()
-])
-renderer.add(orthoCameraEntity)
-
+  cameraHelper: true,
+});
+world.add(orthoCameraEntity);
+*/
 // skybox and  reflection probe
-const skybox = renderer.entity([
-  renderer.transform({
-    rotation: quat.fromAxisAngle(quat.create(), [0, 1, 0], State.rotation)
+const skybox = createEntity({
+  transform: components.transform({
+    rotation: quat.fromAxisAngle(quat.create(), [0, 1, 0], State.rotation),
   }),
-  renderer.skybox({
+  skybox: components.skybox({
     sunPosition: [1, 1, 1],
-    backgroundBlur: true
-  })
-])
-renderer.add(skybox)
-const reflectionProbe = renderer.entity([renderer.reflectionProbe()])
-renderer.add(reflectionProbe)
+    backgroundBlur: false, //TODO:
+  }),
+});
+world.add(skybox);
+
+const reflectionProbe = createEntity({
+  reflectionProbe: components.reflectionProbe(),
+});
+world.add(reflectionProbe);
 
 //lights
-const directionalLightCmp = renderer.directionalLight({
+const directionalLightCmp = components.directionalLight({
   castShadows: true,
   color: [1, 1, 1, 1],
-  intensity: 5
-})
-const directionalLight = renderer.entity([
-  renderer.transform({
+  intensity: 5,
+});
+const directionalLight = createEntity({
+  transform: components.transform({
     rotation: quat.fromTo(
       quat.create(),
       [0, 0, 1],
       vec3.normalize([1, -3, -1])
     ),
-    position: [-1, 2, -1]
+    position: [-1, 2, -1],
   }),
-  directionalLightCmp,
-  renderer.lightHelper()
-])
-renderer.add(directionalLight)
-gui.addColumn('Lights')
-gui.addHeader('Directional Light')
-gui.addParam('Enabled', directionalLightCmp, 'enabled', {}, (value) => {
-  directionalLightCmp.set({ enabled: value })
-})
+  directionalLight: directionalLightCmp,
+  lightHelper: true,
+});
+world.add(directionalLight);
+gui.addColumn("Lights");
+gui.addHeader("Directional Light");
+// gui.addParam("Enabled", directionalLightCmp, "enabled", {}, (value) => {
+//   directionalLightCmp.set({ enabled: value });
+// });
 gui.addParam(
-  'Intensity',
+  "Intensity",
   directionalLightCmp,
-  'intensity',
+  "intensity",
   { min: 0, max: 20 },
   () => {
-    directionalLightCmp.set({ intensity: directionalLightCmp.intensity })
+    directionalLightCmp.set({ intensity: directionalLightCmp.intensity });
   }
-)
-
-const pointLightCmp = renderer.pointLight({
+);
+/*
+const pointLightCmp = components.pointLight({
   castShadows: true,
   color: [0, 1, 0, 1],
-  intensity: 6
-})
-const pointLight = renderer.entity([
-  renderer.transform({
+  intensity: 6,
+  enabled: true,
+});
+const pointLight = createEntity({
+  transform: components.transform({
     rotation: quat.fromTo(
       quat.create(),
       [0, 0, 1],
       vec3.normalize([1, -3, -1])
     ),
-    position: [1, 0.1, 1.5]
+    position: [1, 0.1, 1.5],
   }),
-  pointLightCmp,
-  renderer.lightHelper()
-])
-renderer.add(pointLight)
+  pointLight: pointLightCmp,
+  lightHelper: true,
+});
+world.add(pointLight);
 
-gui.addHeader('Point Light')
-gui.addParam('Enabled', pointLightCmp, 'enabled', {}, (value) => {
-  pointLightCmp.set({ enabled: value })
-})
-gui.addParam('Range', pointLightCmp, 'range', {
-  min: 0,
-  max: 20
-})
+gui.addHeader("Point Light");
+// gui.addParam("Enabled", pointLightCmp, "enabled", {}, (value) => {
+//   pointLightCmp.set({ enabled: value });
+// });
+// gui.addParam("Range", pointLightCmp, "range", {
+//   min: 0,
+//   max: 20,
+// });
 gui.addParam(
-  'Intensity',
+  "Intensity",
   pointLightCmp,
-  'intensity',
+  "intensity",
   { min: 0, max: 20 },
   () => {
-    pointLightCmp.set({ intensity: pointLightCmp.intensity })
+    pointLightCmp.set({ intensity: pointLightCmp.intensity });
   }
-)
-gui.addParam('Shadows', pointLightCmp, 'castShadows', {}, (value) => {
-  pointLightCmp.set({ castShadows: value })
-})
+);
+gui.addParam("Shadows", pointLightCmp, "castShadows", {}, (value) => {
+  pointLightCmp.set({ castShadows: value });
+});
 
-
-const areaLight = renderer.entity([
-  renderer.transform({
+const areaLight = createEntity({
+  transform: components.transform({
     rotation: quat.fromTo(
       quat.create(),
       [0, 0, 1],
       vec3.normalize([1, -3, -1])
     ),
-    position: [-1, 1, 1]
+    position: [-1, 1, 1],
   }),
-  renderer.areaLight({
+  areaLight: components.areaLight({
     castShadows: true,
     color: [0, 1, 1, 1],
-    intensity: 15
+    intensity: 15,
   }),
-  renderer.lightHelper()
-])
-renderer.add(areaLight)
-const areaLightCmp = areaLight.getComponent('AreaLight')
+  lightHelper: true,
+});
+world.add(areaLight);
+const areaLightCmp = areaLight.areaLight;
 // GUI
-gui.addHeader('Area Light')
-gui.addParam('Enabled', areaLightCmp, 'enabled', {}, (value) => {
-  areaLightCmp.set({ enabled: value })
-})
-gui.addParam(
-  'AreaLight Size',
-  areaLight.transform,
-  'scale',
-  { min: 0, max: 5 },
-  (value) => {
-    areaLight.transform.set({ scale: [value[0], value[1], value[2]] })
-  }
-)
-gui.addParam(
-  'AreaLight Intensity',
-  areaLight.getComponent('AreaLight'),
-  'intensity',
-  { min: 0, max: 70 }
-)
-gui.addParam('AreaLight', areaLight.getComponent('AreaLight'), 'color', {
-  type: 'color'
-})
+gui.addHeader("Area Light");
+// gui.addParam("Enabled", areaLightCmp, "enabled", {}, (value) => {
+//   areaLightCmp.set({ enabled: value });
+// });
+// gui.addParam(
+//   "AreaLight Size",
+//   areaLight.transform,
+//   "scale",
+//   { min: 0, max: 5 },
+//   (value) => {
+//     areaLight.transform.set({ scale: [value[0], value[1], value[2]] });
+//   }
+// );
+gui.addParam("AreaLight Intensity", areaLight.areaLight, "intensity", {
+  min: 0,
+  max: 70,
+});
+gui.addParam("AreaLight", areaLight.areaLight, "color", {
+  type: "color",
+});
 
-const spotLightCmp = renderer.spotLight({
+const spotLightCmp = components.spotLight({
   castShadows: true,
   color: [1, 1, 1, 1],
   intensity: 50,
-  range: 3
-})
-const spotLight = renderer.entity([
-  renderer.transform({
+  range: 3,
+});
+const spotLight = createEntity({
+  transform: components.transform({
     rotation: quat.fromTo(
       quat.create(),
       [0, 0, 1],
       vec3.normalize([1, -3, -1])
     ),
-    position: [2, 1, 0]
+    position: [2, 1, 0],
   }),
-  spotLightCmp,
-  renderer.lightHelper()
-])
-renderer.add(spotLight)
+  spotLight: spotLightCmp,
+  lightHelper: true,
+});
+world.add(spotLight);
 
-gui.addHeader('Spot Light')
-gui.addParam('Enabled', spotLightCmp, 'enabled', {}, (value) => {
-  spotLightCmp.set({ enabled: value })
-})
-gui.addParam('Range', spotLightCmp, 'range', {
+gui.addHeader("Spot Light");
+// gui.addParam("Enabled", spotLightCmp, "enabled", {}, (value) => {
+//   spotLightCmp.set({ enabled: value });
+// });
+gui.addParam("Range", spotLightCmp, "range", {
   min: 0,
-  max: 20
-})
+  max: 20,
+});
 gui.addParam(
-  'Intensity',
+  "Intensity",
   spotLightCmp,
-  'intensity',
+  "intensity",
   { min: 0, max: 70 },
   () => {
-    spotLightCmp.set({ intensity: spotLightCmp.intensity })
+    spotLightCmp.set({ intensity: spotLightCmp.intensity });
   }
-)
-gui.addParam('Angle', spotLightCmp, 'angle', {
+);
+gui.addParam("Angle", spotLightCmp, "angle", {
   min: 0,
-  max: Math.PI / 2 - Number.EPSILON
-})
-gui.addParam('Inner angle', spotLightCmp, 'innerAngle', {
+  max: Math.PI / 2 - Number.EPSILON,
+});
+gui.addParam("Inner angle", spotLightCmp, "innerAngle", {
   min: 0,
-  max: Math.PI / 2 - Number.EPSILON
-})
-
+  max: Math.PI / 2 - Number.EPSILON,
+});
+*/
 //floor
-const floorEntity = renderer.entity([
-  renderer.transform({
-    position: [0, -0.4, 0]
+const floorEntity = createEntity({
+  transform: components.transform({
+    position: [0, -0.4, 0],
   }),
-  renderer.geometry(createCube(7, 0.1, 5)),
-  renderer.material({
+  geometry: {
+    ...components.geometry(cube({ sx: 7, sy: 0.1, sz: 5 })),
+    bounds: [
+      [-3.5, -0.5, -2.5],
+      [3.5, 0.5, 2.5],
+    ],
+  },
+  material: components.material({
     baseColor: [1, 1, 1, 1],
     roughness: 2 / 5,
     metallic: 0,
     receiveShadows: true,
-    castShadows: false
+    castShadows: false,
   }),
-  renderer.boundingBoxHelper()
-])
-renderer.add(floorEntity)
+  boundingBoxHelper: components.boundingBoxHelper({ color: [1, 1, 0, 1] }),
+});
+world.add(floorEntity);
 
 //static mesh
-dragon.positions = centerAndNormalize(dragon.positions)
-dragon.normals = normals(dragon.cells, dragon.positions)
-dragon.uvs = dragon.positions.map(() => [0, 0])
-const dragonEntity = renderer.entity([
-  renderer.geometry(dragon),
-  renderer.material({
+dragon.positions = centerAndNormalize(dragon.positions);
+dragon.normals = normals(dragon.cells, dragon.positions);
+dragon.uvs = dragon.positions.map(() => [0, 0]);
+const dragonEntity = createEntity({
+  name: "dragon",
+  geometry: components.geometry(dragon),
+  material: components.material({
     baseColor: [0.5, 1, 0.7, 1],
     roughness: 0.27,
     metallic: 0.0,
     receiveShadows: true,
-    castShadows: true
+    castShadows: true,
   }),
-  renderer.transform({
-    position: [-1.5, 0, 0]
+  transform: components.transform({
+    position: [-1.5, 0, 0],
   }),
-  renderer.boundingBoxHelper({ color: [1, 1, 0, 1] })
-])
-renderer.add(dragonEntity)
-
-//animated mesh
-// loadScene(`${ASSETS_DIR}/models/AnimatedMorphCube/AnimatedMorphCube.gltf`, {
-//   scale: [30, 30, 30],
-//   position: [-0.3, 0, 0]
-// })
+  boundingBoxHelper: components.boundingBoxHelper(),
+});
+world.add(dragonEntity);
 
 //animated skinned mesh
-loadScene(`${ASSETS_DIR}/models/CesiumMan/CesiumMan.gltf`, {
+loadScene(getURL(`assets/models/CesiumMan/CesiumMan.glb`), {
   scale: [0.8, 0.8, 0.8],
-  position: [0.5, -0.35, 0]
-})
+  position: [0.5, -0.35, 0],
+});
 
 //buster drone
-loadScene(`${ASSETS_DIR}/models/buster-drone/scene.gltf`, {
+loadScene(getURL(`assets/models/buster-drone/buster-drone-etc1s-draco.glb`), {
   scale: [0.006, 0.006, 0.006],
-  position: [-0.3, 0.25, 0]
-})
+  position: [-0.3, 0.25, 0],
+});
 
 //instanced mesh
-const gridSize = 3
-let grid = []
+const gridSize = 3;
+let grid = [];
 for (let i = 0; i < gridSize; i++) {
   for (let j = 0; j < gridSize; j++) {
     for (let k = 0; k < gridSize; k++) {
-      grid.push([i / 4, j / 4, k / 4])
+      grid.push([i / 4, j / 4, k / 4]);
     }
   }
 }
 
-let cubeG = createCube(0.1, 0.1, 0.1)
-console.log(grid)
-const instGeometry = renderer.geometry({
-  positions: cubeG.positions,
-  normals: cubeG.normals,
-  uvs: cubeG.uvs,
-  cells: cubeG.cells,
-  offsets: { data: grid, divisor: 1 },
-  instances: grid.length
-})
-let instEntity = renderer.entity([
-  instGeometry,
-  renderer.material({
+function aabbFromInstances(geom, offsets) {
+  const bounds = aabb.fromPoints(aabb.create(), offsets);
+  const geomBounds = aabb.fromPoints(aabb.create(), geom.positions);
+  // const center = aabb.center(bounds)
+  // const geomSize = aabb.size(geomBounds)
+  vec3.add(bounds[0], geomBounds[0]);
+  vec3.add(bounds[1], geomBounds[1]);
+  return bounds;
+}
+
+let cubeG = cube({ sx: 0.1 });
+let cubeInstancesEntity = createEntity({
+  geometry: components.geometry({
+    positions: cubeG.positions,
+    normals: cubeG.normals,
+    uvs: cubeG.uvs,
+    cells: cubeG.cells,
+    offsets: grid,
+    instances: grid.length,
+    bounds: aabbFromInstances(cubeG, grid),
+  }),
+  material: components.material({
     baseColor: [0.5, 1, 0.7, 1],
     castShadows: true,
-    receiveShadows: true
+    receiveShadows: true,
   }),
-  renderer.transform({ position: [1.7, -0.2, 0] }),
-  renderer.boundingBoxHelper()
-])
-renderer.add(instEntity)
+  transform: components.transform({ position: [1.7, -0.2, 0] }),
+  boundingBoxHelper: components.boundingBoxHelper({ color: [1, 0.5, 0, 1] }),
+});
+world.add(cubeInstancesEntity);
 
+console.log(
+  "aabb cubeInstancesEntity",
+  "" + cubeInstancesEntity.geometry.bounds?.[0],
+  " " + cubeInstancesEntity._transform?.worldBounds?.[0]
+);
 
+setTimeout(() => {
+  console.log(
+    "aabb cubeInstancesEntity",
+    "" + cubeInstancesEntity.geometry.bounds?.[0],
+    " " + cubeInstancesEntity._transform?.worldBounds?.[0]
+  );
+}, 1000);
 
-gui.addColumn('Cameras')
-gui.addHeader('Perspective Cam')
+/*
+gui.addColumn("Cameras");
+gui.addHeader("Perspective Cam");
 gui.addParam(
-  'fieldOfView (rad)',
+  "fieldOfView (rad)",
   persCameraCmp,
-  'fov',
+  "fov",
   { min: 0, max: (120 / 180) * Math.PI },
   (fov) => {
-    persCameraCmp.set({ fov })
+    persCameraCmp.set({ fov });
   }
-)
-gui.addParam(
-  'Near',
-  persCameraCmp,
-  'near',
-  { min: 0, max: 5 },
-  (near) => {
-    persCameraCmp.set({ near })
-  }
-)
-gui.addParam(
-  'Far',
-  persCameraCmp,
-  'far',
-  { min: 5, max: 50 },
-  (far) => {
-    persCameraCmp.set({ far })
-  }
-)
+);
+gui.addParam("Near", persCameraCmp, "near", { min: 0, max: 5 }, (near) => {
+  persCameraCmp.set({ near });
+});
+gui.addParam("Far", persCameraCmp, "far", { min: 5, max: 50 }, (far) => {
+  persCameraCmp.set({ far });
+});
 
-gui.addHeader('Orthographic Cam')
-gui.addParam(
-  'Near',
-  orthoCameraCmp,
-  'near',
-  { min: 0, max: 5 },
-  (near) => {
-    orthoCameraCmp.set({ near })
-  }
-)
-gui.addParam(
-  'Far',
-  orthoCameraCmp,
-  'far',
-  { min: 5, max: 20},
-  (far) => {
-    orthoCameraCmp.set({ far })
-  }
-)
-gui.addParam(
-  'Zoom',
-  orthoCameraCmp,
-  'zoom',
-  { min: 1, max: 5 },
-  (zoom) => {
-    orthoCameraCmp.set({ zoom })
-  }
-)
+gui.addHeader("Orthographic Cam");
+gui.addParam("Near", orthoCameraCmp, "near", { min: 0, max: 5 }, (near) => {
+  orthoCameraCmp.set({ near });
+});
+gui.addParam("Far", orthoCameraCmp, "far", { min: 5, max: 20 }, (far) => {
+  orthoCameraCmp.set({ far });
+});
+gui.addParam("Zoom", orthoCameraCmp, "zoom", { min: 1, max: 5 }, (zoom) => {
+  orthoCameraCmp.set({ zoom });
+});
 
-const axisCmp = renderer.axisHelper({scale : 3})
-const gridCmp = renderer.gridHelper({size: 30, step: 0.5})
+const helperEntity = createEntity({
+  axisHelper: { scale: 3 },
+  gridHelper: { size: 30, step: 0.5 },
+});
+world.add(helperEntity);
+*/
+world.addSystem(systems.geometry({ ctx }));
+world.addSystem(systems.animation());
+world.addSystem(systems.transform());
+world.addSystem(systems.camera());
+world.addSystem(systems.skybox({ ctx }));
+world.addSystem(systems.reflectionProbe({ ctx }));
+world.addSystem(systems.renderer({ ctx, outputEncoding: ctx.Encoding.Gamma }));
+world.addSystem(systems.helper({ ctx }));
 
-const helperEntity = renderer.entity(
-  [
-    axisCmp,
-    gridCmp
-  ]
-)
-renderer.add(helperEntity)
-
-gui.addFPSMeeter()
+gui.addFPSMeeter();
 ctx.frame(() => {
-  renderer.draw()
-  gui.draw()
-})
+  world.update();
+  gui.draw();
+});
 
 async function loadScene(url, transformProps) {
-  let scene
-  scene = await renderer.loadScene(url, {
-    includeCameras: false
-  })
+  let scene;
+  scene = (
+    await loaders.gltf(url, {
+      ctx: ctx,
+      includeCameras: false,
+      dracoOptions: {
+        transcoderPath: new URL(
+          "assets/decoders/draco/",
+          import.meta.url
+        ).toString(),
+      },
+      basisOptions: {
+        transcoderPath: new URL(
+          "assets/decoders/basis/",
+          import.meta.url
+        ).toString(),
+      },
+    })
+  )[0];
+
+  console.log("scene", scene);
+  scene.entities.forEach((entity) => {
+    entity.boundingBoxHelper = components.boundingBoxHelper({
+      color: [0.85, 0.5, 0.85, 1],
+    });
+  });
+  Object.assign(scene.root.transform, transformProps);
 
   scene.entities.forEach((entity) => {
-    const materialCmp = entity.getComponent('Material')
-    if (materialCmp) {
-      materialCmp.set({
-        castShadows: true,
-        receiveShadows: true,
-        depthWrite: true
-      })
-    }
-    
-    entity.addComponent(renderer.boundingBoxHelper())
-  })
-  const transformCmp = scene.root.getComponent('Transform')
-  if (transformCmp && transformProps) {
-    transformCmp.set(transformProps)
-  }
+    world.add(entity);
+  });
 
-  renderer.add(scene.root)
   //window.dispatchEvent(new CustomEvent('pex-screenshot'))
 }
